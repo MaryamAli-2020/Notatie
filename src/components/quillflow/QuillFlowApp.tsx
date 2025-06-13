@@ -19,13 +19,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useToast } from "@/hooks/use-toast";
 import {
-  PlusCircle, Save, Trash2, BookMarked, Book, FileText, ThumbsUp, Edit3, Sparkles, Settings, X,
-  Bold, Italic, Underline, List, ListOrdered, StickyNoteIcon, Palette, Table, Image
+  PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
+  Bold, Italic, Underline, List, ListOrdered, StickyNote, Palette, Table, Image
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -59,7 +59,6 @@ export default function QuillFlowApp() {
 
   const { toast } = useToast();
 
-  // Load initial data from localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const rawNotebooks = localStorage.getItem(LOCAL_STORAGE_NOTEBOOKS_KEY);
@@ -86,35 +85,30 @@ export default function QuillFlowApp() {
         setNotes([]);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); 
 
-  // Persist notebooks to localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem(LOCAL_STORAGE_NOTEBOOKS_KEY, JSON.stringify(notebooks));
     }
   }, [notebooks]);
 
-  // Persist notes to localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem(LOCAL_STORAGE_NOTES_KEY, JSON.stringify(notes));
     }
   }, [notes]);
   
-  // Auto-select first notebook if available and none is selected, or if current selection is invalid
   useEffect(() => {
     if (notebooks.length > 0) {
       if (!selectedNotebookId || !notebooks.find(nb => nb.id === selectedNotebookId)) {
         setSelectedNotebookId(notebooks[0].id);
       }
     } else if (notebooks.length === 0 && selectedNotebookId) {
-      setSelectedNotebookId(null); // No notebooks, clear selection
+      setSelectedNotebookId(null); 
     }
   }, [notebooks, selectedNotebookId]);
 
-  // Auto-select first note in the selected notebook, or if current note selection is invalid
   useEffect(() => {
     if (selectedNotebookId) {
       const notesInCurrentNotebook = notes.filter(note => note.notebookId === selectedNotebookId);
@@ -123,13 +117,12 @@ export default function QuillFlowApp() {
           setSelectedNoteId(notesInCurrentNotebook[0].id);
         }
       } else {
-        setSelectedNoteId(null); // No notes in this notebook
+        setSelectedNoteId(null); 
       }
     } else {
-      setSelectedNoteId(null); // No notebook selected
+      setSelectedNoteId(null); 
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNotebookId, notes]);
+  }, [selectedNotebookId, notes, selectedNoteId]);
 
 
   const selectedNote = useMemo(() => {
@@ -162,7 +155,7 @@ export default function QuillFlowApp() {
       updatedAt: new Date().toISOString(),
     };
     setNotebooks(prev => [...prev, newNotebook]);
-    setSelectedNotebookId(newNotebook.id); // Select the new notebook
+    setSelectedNotebookId(newNotebook.id); 
     setNewNotebookName('');
     setIsNewNotebookDialogOpen(false);
     toast({ title: "Success", description: `Notebook "${newNotebook.name}" created.` });
@@ -202,7 +195,6 @@ export default function QuillFlowApp() {
     if (!selectedNote) return;
     const noteTitle = selectedNote.title;
     setNotes(prev => prev.filter(note => note.id !== selectedNote.id));
-    // selectedNoteId will be re-evaluated by the useEffect hook
     toast({ title: "Note Deleted", description: `"${noteTitle}" has been deleted.` });
   };
 
@@ -234,6 +226,75 @@ export default function QuillFlowApp() {
       setIsSummarizing(false);
     }
   };
+
+  const handleFormat = (formatType: string) => {
+    const textarea = document.getElementById('note-textarea') as HTMLTextAreaElement | null;
+    const selectionStart = textarea?.selectionStart ?? currentNoteContent.length;
+    const selectionEnd = textarea?.selectionEnd ?? currentNoteContent.length;
+    const selectedText = currentNoteContent.substring(selectionStart, selectionEnd);
+
+    let newContent = currentNoteContent;
+
+    const wrapSelection = (before: string, defaultText: string, after: string) => {
+      const textToWrap = selectedText || defaultText;
+      return currentNoteContent.substring(0, selectionStart) +
+             before + textToWrap + after +
+             currentNoteContent.substring(selectionEnd);
+    };
+
+    const appendSmart = (text: string) => {
+      if (currentNoteContent.length === 0 || currentNoteContent.endsWith('\n') || currentNoteContent.endsWith('\n\n')) {
+        if (currentNoteContent.endsWith('\n\n') && text.startsWith('\n')) {
+          return currentNoteContent + text.substring(1);
+        }
+        return currentNoteContent + text;
+      }
+      return currentNoteContent + '\n' + text;
+    };
+
+    switch (formatType) {
+      case 'bold':
+        newContent = wrapSelection('**', 'bold text', '**');
+        break;
+      case 'italic':
+        newContent = wrapSelection('*', 'italic text', '*');
+        break;
+      case 'underline':
+        newContent = wrapSelection('<u>', 'underlined text', '</u>');
+        break;
+      case 'ul':
+        newContent = appendSmart('- List item');
+        break;
+      case 'ol':
+        newContent = appendSmart('1. List item');
+        break;
+      case 'color':
+        newContent = wrapSelection('[color:blue]', 'colored text', '[/color]');
+        toast({ title: "Info", description: "Basic color tags added. Actual color rendering not implemented." });
+        break;
+      case 'sticky':
+        newContent = appendSmart('📌 Sticky Note: ');
+        break;
+      case 'table':
+        newContent = appendSmart(
+          '| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |\n| Cell 3   | Cell 4   |'
+        );
+        break;
+      case 'image':
+        newContent = appendSmart(
+          '![alt text](https://placehold.co/100x100.png)'
+        );
+        break;
+      default:
+        return;
+    }
+    
+    setCurrentNoteContent(newContent);
+
+    if (textarea) {
+      textarea.focus();
+    }
+  };
   
   const notesInSelectedNotebook = useMemo(() => {
     if (!selectedNotebookId) return [];
@@ -254,7 +315,7 @@ export default function QuillFlowApp() {
                <FileText className="h-7 w-7 text-primary" />
               <h1 className="text-2xl font-headline text-foreground group-data-[collapsible=icon]:hidden">QuillFlow</h1>
             </div>
-            <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
+            <SidebarTrigger /> {/* Removed className="group-data-[collapsible=icon]:hidden" */}
           </div>
           <div className="group-data-[collapsible=icon]:hidden">
              <DailyQuote />
@@ -428,17 +489,18 @@ export default function QuillFlowApp() {
               </CardHeader>
               <CardContent className="p-4 flex-1 flex flex-col">
                 <div className="mb-2 flex space-x-1 border rounded-md p-1 bg-muted overflow-x-auto">
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold"><Bold /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic"><Italic /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline"><Underline /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List"><List /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List"><ListOrdered /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Color"><Palette /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Sticky Note"><StickyNoteIcon /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table"><Table /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image"><Image /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => handleFormat('bold')}><Bold /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic" onClick={() => handleFormat('italic')}><Italic /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline" onClick={() => handleFormat('underline')}><Underline /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List" onClick={() => handleFormat('ul')}><List /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List" onClick={() => handleFormat('ol')}><ListOrdered /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Color" onClick={() => handleFormat('color')}><Palette /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Sticky Note" onClick={() => handleFormat('sticky')}><StickyNote /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table" onClick={() => handleFormat('table')}><Table /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image" onClick={() => handleFormat('image')}><Image /></Button>
                 </div>
                 <Textarea 
+                  id="note-textarea"
                   value={currentNoteContent}
                   onChange={(e) => setCurrentNoteContent(e.target.value)}
                   placeholder="Start writing your brilliant notes here..."
@@ -533,6 +595,5 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-
 
     
