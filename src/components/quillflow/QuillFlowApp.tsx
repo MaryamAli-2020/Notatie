@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -23,19 +24,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from '@/components/ui/label';
 import { useToast } from "@/hooks/use-toast";
 import {
-  PlusCircle, Save, Trash2, BookMarked, Book, FileText, ThumbsUp, Edit3, Sparkles, Settings,
+  PlusCircle, Save, Trash2, BookMarked, Book, FileText, ThumbsUp, Edit3, Sparkles, Settings, X,
   Bold, Italic, Underline, List, ListOrdered, StickyNoteIcon, Palette
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DailyQuote } from './DailyQuote';
 import type { Notebook, Note } from '@/types';
-import { mockNotebooks, mockNotes } from '@/lib/mock-data';
+// import { mockNotebooks, mockNotes } from '@/lib/mock-data'; // Removed mock data import
 import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } from '@/ai/flows/summarize-notes';
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
 const colorOptions = ['#FFD700', '#ADD8E6', '#90EE90', '#FFB6C1', '#E6E6FA', '#D8BFD8', '#FFDEAD', '#F0E68C'];
 
+const LOCAL_STORAGE_NOTEBOOKS_KEY = 'quillflow-notebooks';
+const LOCAL_STORAGE_NOTES_KEY = 'quillflow-notes';
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -57,26 +60,76 @@ export default function QuillFlowApp() {
 
   const { toast } = useToast();
 
+  // Load initial data from localStorage
   useEffect(() => {
-    // Load mock data on mount
-    setNotebooks(mockNotebooks);
-    setNotes(mockNotes);
-    if (mockNotebooks.length > 0) {
-      setSelectedNotebookId(mockNotebooks[0].id);
-    }
-  }, []);
+    if (typeof window !== 'undefined') {
+      const rawNotebooks = localStorage.getItem(LOCAL_STORAGE_NOTEBOOKS_KEY);
+      if (rawNotebooks) {
+        try {
+          setNotebooks(JSON.parse(rawNotebooks));
+        } catch { 
+          console.error("Failed to parse notebooks from localStorage.");
+          setNotebooks([]); 
+        }
+      } else {
+        setNotebooks([]); 
+      }
 
+      const rawNotes = localStorage.getItem(LOCAL_STORAGE_NOTES_KEY);
+      if (rawNotes) {
+        try {
+          setNotes(JSON.parse(rawNotes));
+        } catch { 
+          console.error("Failed to parse notes from localStorage.");
+          setNotes([]); 
+        }
+      } else {
+        setNotes([]);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); 
+
+  // Persist notebooks to localStorage
   useEffect(() => {
-    if (selectedNotebookId && notes.length > 0) {
-      const firstNoteInNotebook = notes.find(n => n.notebookId === selectedNotebookId);
-      if (firstNoteInNotebook) {
-        setSelectedNoteId(firstNoteInNotebook.id);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(LOCAL_STORAGE_NOTEBOOKS_KEY, JSON.stringify(notebooks));
+    }
+  }, [notebooks]);
+
+  // Persist notes to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(LOCAL_STORAGE_NOTES_KEY, JSON.stringify(notes));
+    }
+  }, [notes]);
+  
+  // Auto-select first notebook if available and none is selected, or if current selection is invalid
+  useEffect(() => {
+    if (notebooks.length > 0) {
+      if (!selectedNotebookId || !notebooks.find(nb => nb.id === selectedNotebookId)) {
+        setSelectedNotebookId(notebooks[0].id);
+      }
+    } else if (notebooks.length === 0 && selectedNotebookId) {
+      setSelectedNotebookId(null); // No notebooks, clear selection
+    }
+  }, [notebooks, selectedNotebookId]);
+
+  // Auto-select first note in the selected notebook, or if current note selection is invalid
+  useEffect(() => {
+    if (selectedNotebookId) {
+      const notesInCurrentNotebook = notes.filter(note => note.notebookId === selectedNotebookId);
+      if (notesInCurrentNotebook.length > 0) {
+        if (!selectedNoteId || !notesInCurrentNotebook.find(note => note.id === selectedNoteId)) {
+          setSelectedNoteId(notesInCurrentNotebook[0].id);
+        }
       } else {
         setSelectedNoteId(null); // No notes in this notebook
       }
-    } else if (!selectedNotebookId) {
-        setSelectedNoteId(null); // No notebook selected
+    } else {
+      setSelectedNoteId(null); // No notebook selected
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNotebookId, notes]);
 
 
@@ -88,7 +141,7 @@ export default function QuillFlowApp() {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
       setCurrentNoteContent(selectedNote.content);
-      setAiSummary(null); // Clear summary when note changes
+      setAiSummary(null); 
     } else {
       setCurrentNoteTitle('');
       setCurrentNoteContent('');
@@ -110,6 +163,7 @@ export default function QuillFlowApp() {
       updatedAt: new Date().toISOString(),
     };
     setNotebooks(prev => [...prev, newNotebook]);
+    setSelectedNotebookId(newNotebook.id); // Select the new notebook
     setNewNotebookName('');
     setIsNewNotebookDialogOpen(false);
     toast({ title: "Success", description: `Notebook "${newNotebook.name}" created.` });
@@ -147,9 +201,10 @@ export default function QuillFlowApp() {
 
   const handleDeleteNote = () => {
     if (!selectedNote) return;
+    const noteTitle = selectedNote.title;
     setNotes(prev => prev.filter(note => note.id !== selectedNote.id));
-    setSelectedNoteId(null); // Deselect note
-    toast({ title: "Note Deleted", description: `"${selectedNote.title}" has been deleted.` });
+    // selectedNoteId will be re-evaluated by the useEffect hook
+    toast({ title: "Note Deleted", description: `"${noteTitle}" has been deleted.` });
   };
 
   const handleToggleBookmark = () => {
@@ -182,6 +237,7 @@ export default function QuillFlowApp() {
   };
   
   const notesInSelectedNotebook = useMemo(() => {
+    if (!selectedNotebookId) return [];
     return notes.filter(note => note.notebookId === selectedNotebookId);
   }, [notes, selectedNotebookId]);
 
@@ -267,6 +323,9 @@ export default function QuillFlowApp() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+               {notebooks.length === 0 && (
+                <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No notebooks yet. Create one!</p>
+              )}
             </SidebarMenu>
           </SidebarGroup>
           
@@ -295,6 +354,9 @@ export default function QuillFlowApp() {
                 ))}
                 {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
                     <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No notes in this notebook yet.</p>
+                )}
+                {!selectedNotebookId && notebooks.length > 0 && (
+                     <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see notes.</p>
                 )}
              </SidebarMenu>
           </SidebarGroup>
@@ -383,16 +445,20 @@ export default function QuillFlowApp() {
                   aria-label="Note content"
                 />
                  <div className="mt-4">
-                  <Button onClick={handleSummarizeNote} disabled={isSummarizing} size="sm">
+                  <Button onClick={handleSummarizeNote} disabled={isSummarizing || !currentNoteContent.trim()} size="sm">
                     <Sparkles className="mr-2 h-4 w-4" />
                     {isSummarizing ? 'Summarizing...' : 'AI Summarize'}
                   </Button>
                   {aiSummary && (
                     <Card className="mt-4 bg-primary/20 border-primary/50">
-                      <CardHeader className="pb-2">
+                      <CardHeader className="py-2 px-3 flex flex-row items-center justify-between">
                         <CardTitle className="text-lg font-headline">AI Summary</CardTitle>
+                        <Button variant="ghost" size="icon" onClick={() => setAiSummary(null)} className="h-7 w-7 text-muted-foreground hover:text-foreground">
+                          <X className="h-4 w-4" />
+                           <span className="sr-only">Close summary</span>
+                        </Button>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="p-3 pt-1">
                         <p className="text-sm whitespace-pre-wrap">{aiSummary}</p>
                       </CardContent>
                     </Card>
@@ -405,17 +471,20 @@ export default function QuillFlowApp() {
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <Book className="h-24 w-24 text-muted-foreground/50 mb-6" />
             <h2 className="text-2xl font-headline text-muted-foreground mb-2">
-              {selectedNotebookId && notesInSelectedNotebook.length === 0 ? 'This notebook is empty' : 'Select a note to view'}
+              {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0 ? 'This notebook is empty' : 
+               !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook' :
+               notebooks.length === 0 ? 'No notebooks yet' : 'Select a note to view'}
             </h2>
             <p className="text-muted-foreground mb-4">
-              {selectedNotebookId && notesInSelectedNotebook.length === 0 
+              {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0
                 ? 'Create your first note in this notebook using the "New Note" button in the sidebar.' 
-                : 'Or create a new notebook and start your journey with QuillFlow!'}
+                : !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook from the sidebar to see its notes.'
+                : 'Create a new notebook to start your journey with QuillFlow!'}
             </p>
-            {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
+            {(selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0) && (
               <Button onClick={handleAddNote}><PlusCircle className="mr-2 h-4 w-4" /> Create New Note</Button>
             )}
-            {!selectedNotebookId && (
+            {notebooks.length === 0 && (
                <Dialog open={isNewNotebookDialogOpen} onOpenChange={setIsNewNotebookDialogOpen}>
                 <DialogTrigger asChild>
                   <Button><PlusCircle className="mr-2 h-4 w-4" /> Create New Notebook</Button>
