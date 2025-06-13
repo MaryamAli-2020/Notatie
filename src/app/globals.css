@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -90,4 +91,25 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Add styles for contentEditable placeholder */
+[contenteditable][data-placeholder]:empty:before {
+  content: attr(data-placeholder);
+  @apply text-muted-foreground opacity-70;
+  pointer-events: none; /* Important to allow clicks to focus */
+}
+
+/* Basic styling for tables inserted via execCommand */
+.prose table {
+  @apply w-full my-4 border-collapse border border-muted;
+}
+.prose th, .prose td {
+  @apply border border-muted p-2;
+}
+.prose th {
+  @apply bg-muted/50 font-semibold;
+}
+.prose img {
+  @apply rounded-md my-2 max-w-full h-auto;
 }

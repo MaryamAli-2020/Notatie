@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -18,14 +18,15 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+// Textarea is replaced by contentEditable div
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
-  Bold, Italic, Underline, List, ListOrdered, StickyNote, Palette, Table, Image
+  Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type // ImageIcon to avoid conflict
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -35,6 +36,7 @@ import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } f
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
 const colorOptions = ['#FFD700', '#ADD8E6', '#90EE90', '#FFB6C1', '#E6E6FA', '#D8BFD8', '#FFDEAD', '#F0E68C'];
+const textColors = ['#000000', '#FF0000', '#0000FF', '#008000', '#FFA500', '#800080']; // Black, Red, Blue, Green, Orange, Purple
 
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'quillflow-notebooks';
 const LOCAL_STORAGE_NOTES_KEY = 'quillflow-notes';
@@ -46,7 +48,7 @@ export default function QuillFlowApp() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   
   const [currentNoteTitle, setCurrentNoteTitle] = useState('');
-  const [currentNoteContent, setCurrentNoteContent] = useState('');
+  const [currentNoteContent, setCurrentNoteContent] = useState(''); // Will store HTML
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
   const [newNotebookName, setNewNotebookName] = useState('');
@@ -58,6 +60,9 @@ export default function QuillFlowApp() {
   const [isSummarizing, setIsSummarizing] = useState(false);
 
   const { toast } = useToast();
+  const editorRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -66,7 +71,6 @@ export default function QuillFlowApp() {
         try {
           setNotebooks(JSON.parse(rawNotebooks));
         } catch { 
-          console.error("Failed to parse notebooks from localStorage.");
           setNotebooks([]); 
         }
       } else {
@@ -78,7 +82,6 @@ export default function QuillFlowApp() {
         try {
           setNotes(JSON.parse(rawNotes));
         } catch { 
-          console.error("Failed to parse notes from localStorage.");
           setNotes([]); 
         }
       } else {
@@ -132,14 +135,24 @@ export default function QuillFlowApp() {
   useEffect(() => {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
-      setCurrentNoteContent(selectedNote.content);
+      setCurrentNoteContent(selectedNote.content); // Content is HTML
+      if (editorRef.current) {
+        editorRef.current.innerHTML = selectedNote.content;
+      }
       setAiSummary(null); 
     } else {
       setCurrentNoteTitle('');
       setCurrentNoteContent('');
+      if (editorRef.current) {
+        editorRef.current.innerHTML = '';
+      }
       setAiSummary(null);
     }
   }, [selectedNote]);
+
+  const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
+    setCurrentNoteContent(event.currentTarget.innerHTML);
+  };
 
   const handleAddNotebook = () => {
     if (!newNotebookName.trim()) {
@@ -170,7 +183,7 @@ export default function QuillFlowApp() {
       id: `note-${Date.now()}`,
       notebookId: selectedNotebookId,
       title: 'Untitled Note',
-      content: '',
+      content: '', // Empty HTML content
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isBookmarked: false,
@@ -182,6 +195,7 @@ export default function QuillFlowApp() {
 
   const handleSaveNote = () => {
     if (!selectedNote) return;
+    // Content is already updated via handleContentChange
     setNotes(prev => prev.map(note => 
       note.id === selectedNote.id 
       ? { ...note, title: currentNoteTitle, content: currentNoteContent, updatedAt: new Date().toISOString() } 
@@ -207,14 +221,18 @@ export default function QuillFlowApp() {
   };
 
   const handleSummarizeNote = async () => {
-    if (!selectedNote || !currentNoteContent.trim()) {
-      toast({ title: "Error", description: "No content to summarize.", variant: "destructive" });
-      return;
+    if (!selectedNote) return;
+    
+    const textContent = editorRef.current?.innerText || '';
+    if (!textContent.trim()) {
+        toast({ title: "Error", description: "No content to summarize.", variant: "destructive" });
+        return;
     }
+
     setIsSummarizing(true);
     setAiSummary(null);
     try {
-      const input: SummarizeNotesInput = { notes: currentNoteContent };
+      const input: SummarizeNotesInput = { notes: textContent };
       const result: SummarizeNotesOutput = await summarizeNotes(input);
       setAiSummary(result.summary);
       toast({ title: "Summary Generated!", description: "AI has summarized your note." });
@@ -226,74 +244,28 @@ export default function QuillFlowApp() {
       setIsSummarizing(false);
     }
   };
-
-  const handleFormat = (formatType: string) => {
-    const textarea = document.getElementById('note-textarea') as HTMLTextAreaElement | null;
-    const selectionStart = textarea?.selectionStart ?? currentNoteContent.length;
-    const selectionEnd = textarea?.selectionEnd ?? currentNoteContent.length;
-    const selectedText = currentNoteContent.substring(selectionStart, selectionEnd);
-
-    let newContent = currentNoteContent;
-
-    const wrapSelection = (before: string, defaultText: string, after: string) => {
-      const textToWrap = selectedText || defaultText;
-      return currentNoteContent.substring(0, selectionStart) +
-             before + textToWrap + after +
-             currentNoteContent.substring(selectionEnd);
-    };
-
-    const appendSmart = (text: string) => {
-      if (currentNoteContent.length === 0 || currentNoteContent.endsWith('\n') || currentNoteContent.endsWith('\n\n')) {
-        if (currentNoteContent.endsWith('\n\n') && text.startsWith('\n')) {
-          return currentNoteContent + text.substring(1);
-        }
-        return currentNoteContent + text;
-      }
-      return currentNoteContent + '\n' + text;
-    };
-
-    switch (formatType) {
-      case 'bold':
-        newContent = wrapSelection('**', 'bold text', '**');
-        break;
-      case 'italic':
-        newContent = wrapSelection('*', 'italic text', '*');
-        break;
-      case 'underline':
-        newContent = wrapSelection('<u>', 'underlined text', '</u>');
-        break;
-      case 'ul':
-        newContent = appendSmart('- List item');
-        break;
-      case 'ol':
-        newContent = appendSmart('1. List item');
-        break;
-      case 'color':
-        newContent = wrapSelection('[color:blue]', 'colored text', '[/color]');
-        toast({ title: "Info", description: "Basic color tags added. Actual color rendering not implemented." });
-        break;
-      case 'sticky':
-        newContent = appendSmart('📌 Sticky Note: ');
-        break;
-      case 'table':
-        newContent = appendSmart(
-          '| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |\n| Cell 3   | Cell 4   |'
-        );
-        break;
-      case 'image':
-        newContent = appendSmart(
-          '![alt text](https://placehold.co/100x100.png)'
-        );
-        break;
-      default:
-        return;
+  
+  const execFormatCommand = (command: string, value?: string) => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      document.execCommand(command, false, value);
+      // After execCommand, the contentEditable div's innerHTML might have changed
+      // So, we re-sync our React state with the DOM's current state.
+      setCurrentNoteContent(editorRef.current.innerHTML);
     }
-    
-    setCurrentNoteContent(newContent);
+  };
 
-    if (textarea) {
-      textarea.focus();
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        execFormatCommand('insertHTML', `<img src="${dataUrl}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 0.25rem; margin: 0.5rem 0;" data-ai-hint="uploaded image" />`);
+      };
+      reader.readAsDataURL(file);
     }
+    if(imageInputRef.current) imageInputRef.current.value = ""; // Reset file input
   };
   
   const notesInSelectedNotebook = useMemo(() => {
@@ -304,6 +276,14 @@ export default function QuillFlowApp() {
   const bookmarkedNotes = useMemo(() => {
     return notes.filter(note => note.isBookmarked);
   }, [notes]);
+  
+  const activeNotebookColor = useMemo(() => {
+    if (selectedNote && notebooks) {
+      const notebook = notebooks.find(nb => nb.id === selectedNote.notebookId);
+      return notebook?.color;
+    }
+    return 'var(--border)';
+  }, [selectedNote, notebooks]);
 
 
   return (
@@ -315,7 +295,7 @@ export default function QuillFlowApp() {
                <FileText className="h-7 w-7 text-primary" />
               <h1 className="text-2xl font-headline text-foreground group-data-[collapsible=icon]:hidden">QuillFlow</h1>
             </div>
-            <SidebarTrigger /> {/* Removed className="group-data-[collapsible=icon]:hidden" */}
+            <SidebarTrigger />
           </div>
           <div className="group-data-[collapsible=icon]:hidden">
              <DailyQuote />
@@ -456,8 +436,14 @@ export default function QuillFlowApp() {
       <SidebarInset className="flex-1 flex flex-col bg-background">
         {selectedNote ? (
           <div className="flex-1 flex flex-col p-4 md:p-6 space-y-4 overflow-y-auto">
-            <Card className="flex-1 flex flex-col shadow-lg rounded-xl overflow-hidden" style={{borderColor: notebooks.find(nb => nb.id === selectedNote.notebookId)?.color || 'var(--border)'}}>
-              <CardHeader className="bg-card p-4 border-b flex flex-row items-center justify-between space-y-0">
+            <Card 
+              className="flex-1 flex flex-col shadow-lg rounded-xl overflow-hidden border-4" // Increased border thickness
+              style={{borderColor: activeNotebookColor}}
+            >
+              <CardHeader 
+                className="p-4 border-b flex flex-row items-center justify-between space-y-0"
+                style={{backgroundColor: activeNotebookColor ? `${activeNotebookColor}33` : 'var(--card)' }} // Apply notebook color with alpha to header
+              >
                 <div className="flex items-center gap-2 flex-grow min-w-0">
                   {isEditingTitle ? (
                      <Input 
@@ -465,7 +451,7 @@ export default function QuillFlowApp() {
                         onChange={(e) => setCurrentNoteTitle(e.target.value)} 
                         onBlur={handleSaveNote}
                         onKeyDown={(e) => e.key === 'Enter' && handleSaveNote()}
-                        className="text-2xl font-headline h-auto p-0 border-0 focus-visible:ring-0 flex-grow"
+                        className="text-2xl font-headline h-auto p-0 border-0 focus-visible:ring-0 flex-grow bg-transparent placeholder-muted-foreground"
                         autoFocus
                       />
                   ) : (
@@ -488,24 +474,45 @@ export default function QuillFlowApp() {
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex-1 flex flex-col">
-                <div className="mb-2 flex space-x-1 border rounded-md p-1 bg-muted overflow-x-auto">
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => handleFormat('bold')}><Bold /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic" onClick={() => handleFormat('italic')}><Italic /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline" onClick={() => handleFormat('underline')}><Underline /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List" onClick={() => handleFormat('ul')}><List /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List" onClick={() => handleFormat('ol')}><ListOrdered /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Color" onClick={() => handleFormat('color')}><Palette /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Sticky Note" onClick={() => handleFormat('sticky')}><StickyNote /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table" onClick={() => handleFormat('table')}><Table /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image" onClick={() => handleFormat('image')}><Image /></Button>
+                <div className="mb-2 flex space-x-0.5 border rounded-md p-1 bg-muted overflow-x-auto">
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => execFormatCommand('bold')}><Bold /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic" onClick={() => execFormatCommand('italic')}><Italic /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline" onClick={() => execFormatCommand('underline')}><Underline /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List" onClick={() => execFormatCommand('insertUnorderedList')}><List /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List" onClick={() => execFormatCommand('insertOrderedList')}><ListOrdered /></Button>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Text Color"><Palette /></Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-2">
+                      <div className="flex gap-1">
+                        {textColors.map(color => (
+                          <Button
+                            key={color}
+                            variant="outline"
+                            size="icon"
+                            className="h-6 w-6 rounded-full"
+                            style={{ backgroundColor: color }}
+                            onClick={() => execFormatCommand('foreColor', color)}
+                            aria-label={`Set text color to ${color}`}
+                          />
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table" onClick={() => execFormatCommand('insertHTML', '<table border="1" style="border-collapse: collapse; width: 100%;"><tbody><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></tbody></table>')}><Table /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image" onClick={() => imageInputRef.current?.click()}><ImageIcon /></Button>
+                  <input type="file" accept="image/*" ref={imageInputRef} onChange={handleImageUpload} style={{ display: 'none' }} />
                 </div>
-                <Textarea 
-                  id="note-textarea"
-                  value={currentNoteContent}
-                  onChange={(e) => setCurrentNoteContent(e.target.value)}
-                  placeholder="Start writing your brilliant notes here..."
-                  className="flex-1 w-full text-base resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-2 rounded-md bg-background"
+                <div 
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning // To allow React to manage contentEditable content
+                  onInput={handleContentChange}
+                  data-placeholder="Start writing your brilliant notes here..."
+                  className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2"
                   aria-label="Note content"
+                  style={{minHeight: '200px'}} // Ensure a minimum height for the editor
                 />
                  <div className="mt-4">
                   <Button onClick={handleSummarizeNote} disabled={isSummarizing || !currentNoteContent.trim()} size="sm">
@@ -595,5 +602,3 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-
-    
