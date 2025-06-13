@@ -1,8 +1,7 @@
-import Image from 'next/image';
-import bearIcon from '@/app/bear.png';
-
 "use client";
 
+import Image from 'next/image';
+import bearIcon from '@/app/bear.png';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   SidebarProvider,
