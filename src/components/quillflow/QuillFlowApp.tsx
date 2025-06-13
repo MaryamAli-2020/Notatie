@@ -25,13 +25,12 @@ import { Label } from '@/components/ui/label';
 import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, ThumbsUp, Edit3, Sparkles, Settings, X,
-  Bold, Italic, Underline, List, ListOrdered, StickyNoteIcon, Palette
+  Bold, Italic, Underline, List, ListOrdered, StickyNoteIcon, Palette, Table, Image
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DailyQuote } from './DailyQuote';
 import type { Notebook, Note } from '@/types';
-// import { mockNotebooks, mockNotes } from '@/lib/mock-data'; // Removed mock data import
 import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } from '@/ai/flows/summarize-notes';
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
@@ -428,14 +427,16 @@ export default function QuillFlowApp() {
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex-1 flex flex-col">
-                <div className="mb-2 flex space-x-1 border rounded-md p-1 bg-muted">
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold (coming soon)" disabled><Bold /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic (coming soon)" disabled><Italic /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline (coming soon)" disabled><Underline /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List (coming soon)" disabled><List /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List (coming soon)" disabled><ListOrdered /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Highlight (coming soon)" disabled><Palette /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Sticky Note (coming soon)" disabled><StickyNoteIcon /></Button>
+                <div className="mb-2 flex space-x-1 border rounded-md p-1 bg-muted overflow-x-auto">
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold"><Bold /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic"><Italic /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline"><Underline /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List"><List /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List"><ListOrdered /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Color"><Palette /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Sticky Note"><StickyNoteIcon /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table"><Table /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image"><Image /></Button>
                 </div>
                 <Textarea 
                   value={currentNoteContent}
@@ -532,3 +533,6 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
+
+
+    
