@@ -1,5 +1,5 @@
 
-"use client"; // Keep this if other parts of Home might need client context, or remove if QuillFlowAppWithNoSSR is the only thing.
+"use client"; // Keep this if other parts of Home might need client context, or remove if Notatie is the only thing.
                 // For this specific case, dynamic import with ssr:false usually handles client-only needs well.
                 // Let's assume for now that client context might be useful or other components could be added.
 

@@ -1,3 +1,5 @@
+import Image from 'next/image';
+import bearIcon from '@/app/bear.png';
 
 "use client";
 
@@ -38,8 +40,8 @@ const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Setting
 const colorOptions = ['#FFD700', '#ADD8E6', '#90EE90', '#FFB6C1', '#E6E6FA', '#D8BFD8', '#FFDEAD', '#F0E68C'];
 const textColors = ['#000000', '#FF0000', '#0000FF', '#008000', '#FFA500', '#800080']; // Black, Red, Blue, Green, Orange, Purple
 
-const LOCAL_STORAGE_NOTEBOOKS_KEY = 'quillflow-notebooks';
-const LOCAL_STORAGE_NOTES_KEY = 'quillflow-notes';
+const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
+const LOCAL_STORAGE_NOTES_KEY = 'Notatie-notes';
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -291,9 +293,8 @@ export default function QuillFlowApp() {
       <Sidebar variant="sidebar" collapsible="icon" className="border-r shadow-md">
         <SidebarHeader className="p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-               <FileText className="h-7 w-7 text-primary" />
-              <h1 className="text-2xl font-headline text-foreground group-data-[collapsible=icon]:hidden">QuillFlow</h1>
+            <div className="flex items-center gap-2">               <Image src={bearIcon} alt="Bear Icon" className="h-7 w-7" width={28} height={28} />
+              <h1 className="text-2xl font-headline text-foreground group-data-[collapsible=icon]:hidden">Notatie</h1>
             </div>
             <SidebarTrigger />
           </div>
@@ -502,7 +503,16 @@ export default function QuillFlowApp() {
                   </Popover>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table" onClick={() => execFormatCommand('insertHTML', '<table border="1" style="border-collapse: collapse; width: 100%;"><tbody><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></tbody></table>')}><Table /></Button>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image" onClick={() => imageInputRef.current?.click()}><ImageIcon /></Button>
-                  <input type="file" accept="image/*" ref={imageInputRef} onChange={handleImageUpload} style={{ display: 'none' }} />
+                  <label htmlFor="note-image-upload" className="sr-only">Upload image</label>
+                  <input
+                    id="note-image-upload"
+                    type="file"
+                    accept="image/*"
+                    ref={imageInputRef}
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    title="Upload image"
+                  />
                 </div>
                 <div 
                   ref={editorRef}
@@ -549,7 +559,7 @@ export default function QuillFlowApp() {
               {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0
                 ? 'Create your first note in this notebook using the "New Note" button in the sidebar.' 
                 : !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook from the sidebar to see its notes.'
-                : 'Create a new notebook to start your journey with QuillFlow!'}
+                : 'Create a new notebook to start your journey with Notatie!'}
             </p>
             {(selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0) && (
               <Button onClick={handleAddNote}><PlusCircle className="mr-2 h-4 w-4" /> Create New Note</Button>

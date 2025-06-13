@@ -1,4 +1,4 @@
-# **App Name**: QuillFlow
+# **App Name**: Notatie
 
 ## Core Features:
 

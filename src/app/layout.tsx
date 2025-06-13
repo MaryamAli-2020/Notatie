@@ -3,8 +3,11 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'QuillFlow',
+  title: 'Notatie',
   description: 'A fun and engaging note-taking app.',
+  icons: {
+    icon: 'public\bear.png'
+  },
 };
 
 export default function RootLayout({
