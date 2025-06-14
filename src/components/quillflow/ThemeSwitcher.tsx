@@ -26,7 +26,7 @@ export function ThemeSwitcher() {
   }, [theme, mounted]);
 
   if (!mounted) {
-    return <Button variant="ghost" size="icon" className="opacity-50 cursor-default"><Sun className="h-[1.2rem] w-[1.2rem]" /></Button>;
+    return <Button variant="sidebarAction" size="icon" className="opacity-50 cursor-default"><Sun className="h-[1.2rem] w-[1.2rem]" /></Button>;
   }
 
   const toggleTheme = () => {
@@ -34,7 +34,7 @@ export function ThemeSwitcher() {
   };
 
   return (
-    <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+    <Button variant="sidebarAction" size="icon" onClick={toggleTheme} aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
       {theme === 'light' ? (
         <Moon className="h-[1.2rem] w-[1.2rem]" />
       ) : (

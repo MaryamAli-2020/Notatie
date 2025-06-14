@@ -6,6 +6,7 @@ body {
   @apply font-body;
 }
 
+
 @layer base {
   :root {
     /* Warm cream and soft browns with golden undertones */
@@ -117,3 +118,4 @@ body {
 .prose img {
   @apply rounded-lg my-2 max-w-full h-auto shadow-sm;
 }
+

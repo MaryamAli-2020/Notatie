@@ -36,7 +36,7 @@ import type { Notebook, Note } from '@/types';
 import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } from '@/ai/flows/summarize-notes';
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
-const colorOptions = ['#FFD700', '#ADD8E6', '#90EE90', '#FFB6C1', '#E6E6FA', '#D8BFD8', '#FFDEAD', '#F0E68C'];
+const colorOptions = ['#352208', '#E1BB80', '#7B6B43', '#685634', '#806443', '#ffd93d', '#65B0E2', '#6C3F26'];
 const textColors = ['#000000', '#FF0000', '#0000FF', '#008000', '#FFA500', '#800080']; // Black, Red, Blue, Green, Orange, Purple
 
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
@@ -54,8 +54,8 @@ export default function QuillFlowApp() {
 
   const [newNotebookName, setNewNotebookName] = useState('');
   const [newNotebookColor, setNewNotebookColor] = useState(colorOptions[0]);
-  const [newNotebookIcon, setNewNotebookIcon] = useState(iconOptions[0]);
-  const [isNewNotebookDialogOpen, setIsNewNotebookDialogOpen] = useState(false);
+  const [newNotebookIcon, setNewNotebookIcon] = useState(iconOptions[0]);  const [isNewNotebookDialogOpen, setIsNewNotebookDialogOpen] = useState(false);
+  const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null);
 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
@@ -213,12 +213,19 @@ export default function QuillFlowApp() {
     toast({ title: "Note Deleted", description: `"${noteTitle}" has been deleted.` });
   };
 
-  const handleToggleBookmark = () => {
-    if (!selectedNote) return;
-    setNotes(prev => prev.map(note =>
-      note.id === selectedNote.id ? { ...note, isBookmarked: !note.isBookmarked } : note
+  const handleToggleBookmark = (noteId: string) => {
+    setNotes(prev => prev.map(note => 
+      note.id === noteId 
+        ? { ...note, isBookmarked: !note.isBookmarked }
+        : note
     ));
-    toast({ title: "Bookmark Updated", description: `Bookmark status for "${selectedNote.title}" changed.` });
+    const note = notes.find(n => n.id === noteId);
+    if (note) {
+      toast({
+        title: note.isBookmarked ? "Bookmark Removed" : "Bookmark Added",
+        description: `"${note.title}" has been ${note.isBookmarked ? "removed from" : "added to"} bookmarks.`
+      });
+    }
   };
 
   const handleSummarizeNote = async () => {
@@ -287,6 +294,26 @@ export default function QuillFlowApp() {
   }, [selectedNote, notebooks]);
 
 
+  const handleDeleteNotebook = (notebook: Notebook) => {
+    // First delete all notes in this notebook
+    const notesToDelete = notes.filter(note => note.notebookId === notebook.id);
+    setNotes(prev => prev.filter(note => note.notebookId !== notebook.id));
+    
+    // Then delete the notebook
+    setNotebooks(prev => prev.filter(nb => nb.id !== notebook.id));
+    
+    // Reset selected notebook if we just deleted it
+    if (selectedNotebookId === notebook.id) {
+      setSelectedNotebookId(null);
+    }
+
+    setNotebookToDelete(null);
+    toast({ 
+      title: "Notebook Deleted", 
+      description: `"${notebook.name}" and its ${notesToDelete.length} note${notesToDelete.length === 1 ? '' : 's'} have been deleted.` 
+    });
+  };
+
   return (
     <SidebarProvider defaultOpen>
       <Sidebar variant="sidebar" collapsible="icon" className="border-r shadow-md">
@@ -305,13 +332,10 @@ export default function QuillFlowApp() {
         <SidebarContent className="p-2">
           <SidebarGroup className="group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel className="flex items-center justify-between">
-              Notebooks
+              Notebooks              <Button variant="sidebarAction" size="icon" className="h-7 w-7" onClick={() => setIsNewNotebookDialogOpen(true)}>
+                <PlusCircle className="h-4 w-4" />
+              </Button>
               <Dialog open={isNewNotebookDialogOpen} onOpenChange={setIsNewNotebookDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-7 w-7">
-                    <PlusCircle className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Create New Notebook</DialogTitle>
@@ -341,9 +365,7 @@ export default function QuillFlowApp() {
                     </div>
                   </div>
                   <DialogFooter>
-                    <DialogClose asChild>
-                       <Button variant="outline">Cancel</Button>
-                    </DialogClose>
+                    <Button variant="outline" onClick={() => setIsNewNotebookDialogOpen(false)}>Cancel</Button>
                     <Button onClick={handleAddNotebook}>Create</Button>
                   </DialogFooter>
                 </DialogContent>
@@ -351,16 +373,27 @@ export default function QuillFlowApp() {
             </SidebarGroupLabel>
             <SidebarMenu>
               {notebooks.map(nb => (
-                <SidebarMenuItem key={nb.id}>
-                  <SidebarMenuButton 
-                    onClick={() => setSelectedNotebookId(nb.id)}
-                    isActive={selectedNotebookId === nb.id}
-                    className="justify-start"
-                    tooltip={nb.name}
-                  >
-                    <NotebookIcon name={nb.icon} style={{ color: nb.color }} className="h-5 w-5" />
-                    <span className="group-data-[collapsible=icon]:hidden">{nb.name}</span>
-                  </SidebarMenuButton>
+                <SidebarMenuItem key={nb.id}>                  <div className="flex items-center w-full gap-1">
+                    <SidebarMenuButton 
+                      onClick={() => setSelectedNotebookId(nb.id)}
+                      isActive={selectedNotebookId === nb.id}
+                      className="justify-start flex-grow"
+                      tooltip={nb.name}
+                    >
+                      <NotebookIcon name={nb.icon} style={{ color: nb.color }} className="h-5 w-5" />
+                      <span className="group-data-[collapsible=icon]:hidden">{nb.name}</span>
+                    </SidebarMenuButton>                    <Button 
+                      variant="sidebarAction" 
+                      size="icon" 
+                      className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNotebookToDelete(nb);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-600" />
+                    </Button>
+                  </div>
                 </SidebarMenuItem>
               ))}
                {notebooks.length === 0 && (
@@ -374,22 +407,40 @@ export default function QuillFlowApp() {
              <SidebarMenu>
                 {selectedNotebookId && (
                   <SidebarMenuItem>
-                    <Button variant="ghost" size="sm" className="w-full justify-start gap-2" onClick={handleAddNote}>
+                    <Button 
+                      variant="sidebarAction" 
+                      size="sm" 
+                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity" 
+                      onClick={handleAddNote}
+                    >
                       <PlusCircle className="h-4 w-4"/> New Note
                     </Button>
                   </SidebarMenuItem>
                 )}
                 {notesInSelectedNotebook.map(note => (
                   <SidebarMenuItem key={note.id}>
-                    <SidebarMenuButton 
-                      onClick={() => setSelectedNoteId(note.id)} 
-                      isActive={selectedNoteId === note.id}
-                      className="justify-start text-sm"
-                      tooltip={note.title}
-                    >
-                      <FileText className="h-4 w-4 opacity-70" />
-                      <span className="truncate group-data-[collapsible=icon]:hidden">{note.title}</span>
-                    </SidebarMenuButton>
+                    <div className="flex items-center w-full gap-1">
+                      <SidebarMenuButton 
+                        onClick={() => setSelectedNoteId(note.id)} 
+                        isActive={selectedNoteId === note.id}
+                        className="justify-start text-sm flex-grow"
+                        tooltip={note.title}
+                      >
+                        <FileText className="h-4 w-4 opacity-70" />
+                        <span className="truncate group-data-[collapsible=icon]:hidden">{note.title}</span>
+                      </SidebarMenuButton>
+                      <Button 
+                        variant="sidebarAction" 
+                        size="icon" 
+                        className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleBookmark(note.id);
+                        }}
+                      >
+                        <BookMarked className={`h-4 w-4 ${note.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
+                      </Button>
+                    </div>
                   </SidebarMenuItem>
                 ))}
                 {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
@@ -426,8 +477,7 @@ export default function QuillFlowApp() {
 
         <SidebarFooter className="p-4 border-t flex items-center justify-between group-data-[collapsible=icon]:justify-center">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-            <Settings className="h-5 w-5" />
-            <span>Settings</span>
+            
           </div>
           <ThemeSwitcher />
         </SidebarFooter>
@@ -462,14 +512,34 @@ export default function QuillFlowApp() {
                   )}
                 </div>
                 <div className="flex items-center space-x-1">
-                  <Button variant="ghost" size="icon" onClick={handleToggleBookmark} aria-label={selectedNote.isBookmarked ? "Remove bookmark" : "Add bookmark"}>
-                    <BookMarked className={`h-5 w-5 ${selectedNote.isBookmarked ? 'text-yellow-500 fill-yellow-400' : 'text-muted-foreground'}`} />
+                  <Button 
+                    variant="sidebarAction" 
+                    size="icon" 
+                    className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleBookmark(selectedNote.id);
+                    }}
+                  >
+                    <BookMarked className={`h-4 w-4 ${selectedNote.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={handleSaveNote} aria-label="Save note">
-                    <Save className="h-5 w-5 text-green-600" />
+                  <Button 
+                    variant="sidebarAction" 
+                    size="icon" 
+                    className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                    onClick={handleSaveNote} 
+                    aria-label="Save note"
+                  >
+                    <Save className="h-4 w-4 text-green-600" />
                   </Button>
-                   <Button variant="ghost" size="icon" onClick={handleDeleteNote} aria-label="Delete note">
-                    <Trash2 className="h-5 w-5 text-red-600" />
+                   <Button 
+                    variant="sidebarAction" 
+                    size="icon" 
+                    className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                    onClick={handleDeleteNote} 
+                    aria-label="Delete note"
+                  >
+                    <Trash2 className="h-4 w-4 text-red-600" />
                   </Button>
                 </div>
               </CardHeader>
@@ -562,13 +632,11 @@ export default function QuillFlowApp() {
             </p>
             {(selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0) && (
               <Button onClick={handleAddNote}><PlusCircle className="mr-2 h-4 w-4" /> Create New Note</Button>
-            )}
-            {notebooks.length === 0 && (
-               <Dialog open={isNewNotebookDialogOpen} onOpenChange={setIsNewNotebookDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button><PlusCircle className="mr-2 h-4 w-4" /> Create New Notebook</Button>
-                </DialogTrigger>
-                 <DialogContent>
+            )}            {notebooks.length === 0 && (
+              <div>
+                <Button onClick={() => setIsNewNotebookDialogOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Create New Notebook</Button>
+                <Dialog open={isNewNotebookDialogOpen} onOpenChange={setIsNewNotebookDialogOpen}>
+                <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Create New Notebook</DialogTitle>
                   </DialogHeader>
@@ -597,17 +665,39 @@ export default function QuillFlowApp() {
                     </div>
                   </div>
                   <DialogFooter>
-                    <DialogClose asChild>
-                      <Button variant="outline">Cancel</Button>
-                    </DialogClose>
+                    <Button variant="outline" onClick={() => setIsNewNotebookDialogOpen(false)}>Cancel</Button>
                     <Button onClick={handleAddNotebook}>Create</Button>
                   </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                </DialogContent>              </Dialog>
+              </div>
             )}
           </div>
         )}
       </SidebarInset>
+
+      <Dialog open={notebookToDelete !== null} onOpenChange={(open) => !open && setNotebookToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Notebook</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p>Are you sure you want to delete "{notebookToDelete?.name}"?</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This will permanently delete this notebook and all {notes.filter(note => note.notebookId === notebookToDelete?.id).length} notes inside it. 
+              This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNotebookToDelete(null)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => notebookToDelete && handleDeleteNotebook(notebookToDelete)}
+            >
+              Delete Notebook
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   );
 }
