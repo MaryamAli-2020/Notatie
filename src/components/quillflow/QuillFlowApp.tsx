@@ -1,3 +1,4 @@
+
 "use client";
 
 import Image from 'next/image';
@@ -27,7 +28,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
-  Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type // ImageIcon to avoid conflict
+  Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type, // ImageIcon to avoid conflict
+  Heading1, Heading2, Heading3, Highlighter // New icons
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -38,6 +40,7 @@ import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } f
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
 const colorOptions = ['#352208', '#E1BB80', '#7B6B43', '#685634', '#806443', '#ffd93d', '#65B0E2', '#6C3F26'];
 const textColors = ['#000000', '#FF0000', '#0000FF', '#008000', '#FFA500', '#800080']; // Black, Red, Blue, Green, Orange, Purple
+const HIGHLIGHT_COLOR = '#D8BFAA';
 
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
 const LOCAL_STORAGE_NOTES_KEY = 'Notatie-notes';
@@ -544,12 +547,16 @@ export default function QuillFlowApp() {
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex-1 flex flex-col">
-                <div className="mb-2 flex space-x-0.5 border rounded-md p-1 bg-muted overflow-x-auto">
+                <div className="mb-2 flex flex-wrap gap-0.5 border rounded-md p-1 bg-muted overflow-x-auto">
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => execFormatCommand('bold')}><Bold /></Button>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic" onClick={() => execFormatCommand('italic')}><Italic /></Button>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline" onClick={() => execFormatCommand('underline')}><Underline /></Button>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List" onClick={() => execFormatCommand('insertUnorderedList')}><List /></Button>
                   <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List" onClick={() => execFormatCommand('insertOrderedList')}><ListOrdered /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 1" onClick={() => execFormatCommand('formatBlock', '<h1>')}><Heading1 className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 2" onClick={() => execFormatCommand('formatBlock', '<h2>')}><Heading2 className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 3" onClick={() => execFormatCommand('formatBlock', '<h3>')}><Heading3 className="h-5 w-5" /></Button>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Highlight" onClick={() => execFormatCommand('backColor', HIGHLIGHT_COLOR)}><Highlighter className="h-5 w-5"/></Button>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Text Color"><Palette /></Button>
@@ -701,3 +708,6 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
+
+
+    
