@@ -162,10 +162,10 @@ export default function QuillFlowApp() {
     const canvas = canvasRef.current;
     const scrollContainer = scrollContainerRef.current;
     if (!canvas || !scrollContainer) return null;
-
+  
     const rect = canvas.getBoundingClientRect();
     let clientX, clientY;
-
+  
     if (event instanceof MouseEvent) {
       clientX = event.clientX;
       clientY = event.clientY;
@@ -177,12 +177,15 @@ export default function QuillFlowApp() {
     }
     
     const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height; 
-
-    const finalX = (clientX - rect.left) * scaleX;
-    const finalY = (clientY - rect.top) * scaleY; 
-     return { x: finalX, y: finalY };
-
+    const scaleY = canvas.height / rect.height;
+  
+    const xOnCanvas = (clientX - rect.left);
+    const yOnCanvas = (clientY - rect.top);
+  
+    const finalX = xOnCanvas * scaleX;
+    const finalY = yOnCanvas * scaleY + scrollContainer.scrollTop * scaleY;
+    
+    return { x: finalX, y: finalY };
   }, []);
 
 
@@ -218,13 +221,11 @@ export default function QuillFlowApp() {
   }, [selectedNote]);
 
 
-  // Effect for initializing/changing selected note for whiteboard
   useEffect(() => {
     if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-            console.error("Failed to get 2D context for whiteboard canvas.");
             drawingContextRef.current = null; 
             return;
         }
@@ -232,41 +233,33 @@ export default function QuillFlowApp() {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        // Ensure canvas context is in 'source-over' for initial drawing/filling
+        const currentThemeIsDark = document.documentElement.classList.contains('dark');
+        const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+        
         const oldGCO = ctx.globalCompositeOperation;
         ctx.globalCompositeOperation = 'source-over';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.globalCompositeOperation = oldGCO;
 
         if (selectedNote.content) { 
             const img = new window.Image();
             img.onload = () => {
                 if (drawingContextRef.current) { 
-                   ctx.clearRect(0, 0, canvas.width, canvas.height); 
                    drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
                 }
             };
             img.onerror = () => {
-                console.error("Failed to load whiteboard image content. Displaying clean background.");
-                const currentThemeIsDark = document.documentElement.classList.contains('dark');
-                const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = backgroundColor;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                console.error("Failed to load whiteboard image content for note selection.");
             }
             img.src = selectedNote.content;
-        } else { 
-            const currentThemeIsDark = document.documentElement.classList.contains('dark');
-            const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = backgroundColor;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
-        ctx.globalCompositeOperation = oldGCO; // Restore GCO if it was changed
     } else {
         drawingContextRef.current = null; 
     }
-  }, [selectedNote]);
+  }, [selectedNote]); 
 
-  // Effect for handling theme changes for an active whiteboard
   useEffect(() => {
     if (themeVersion === 0) return; 
 
@@ -301,7 +294,7 @@ export default function QuillFlowApp() {
             img.src = liveDrawingDataUrl;
         }
     }
-  }, [themeVersion, selectedNote]);
+  }, [themeVersion, selectedNote?.id]);
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -1046,5 +1039,7 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
+
+    
 
     
