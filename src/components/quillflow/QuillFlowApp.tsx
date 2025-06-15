@@ -171,11 +171,17 @@ export default function QuillFlowApp() {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
       setCurrentNoteContent(selectedNote.content);
+
       if (selectedNote.type === 'note' && editorRef.current) {
         editorRef.current.innerHTML = selectedNote.content;
+      } else if (editorRef.current) {
+        // If it's a whiteboard, or if selectedNote exists but isn't type 'note',
+        // ensure the contentEditable div is cleared.
+        editorRef.current.innerHTML = '';
       }
-      setAiSummary(null);
+      setAiSummary(null); // Reset AI summary when note changes
     } else {
+      // No note selected, clear everything
       setCurrentNoteTitle('');
       setCurrentNoteContent('');
       if (editorRef.current) {
@@ -207,8 +213,18 @@ export default function QuillFlowApp() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
+    // Calculate cursor position relative to the canvas, considering canvas scroll
+    // The scroll adjustment is tricky and depends on how the scroll container interacts with the canvas.
+    // If canvas itself scrolls within the scrollContainer, scrollTop is needed.
+    // If scrollContainer scrolls and canvas is fixed within it, clientY relative to rect.top is fine.
+    // Let's assume scrollContainer's scrollTop is the one affecting the perceived Y.
     const xOnCanvas = (clientX - rect.left) * scaleX;
-    const yOnCanvas = (clientY - rect.top) * scaleY + (scrollContainer.scrollTop * scaleY);
+    // Correct Y calculation by adding scrollContainer's scrollTop *after* scaling
+    // clientY - rect.top gives Y relative to canvas's visible area.
+    // scrollContainer.scrollTop is the amount the *container* is scrolled.
+    // The canvas's top position (rect.top) already accounts for parent scrolling to *its* top.
+    // So if canvas content scrolls, scrollTop within scrollContainer is what matters.
+    const yOnCanvas = ((clientY - rect.top) + scrollContainer.scrollTop) * scaleY;
 
 
     return { x: xOnCanvas, y: yOnCanvas };
@@ -244,35 +260,39 @@ useEffect(() => {
     const currentThemeIsDark = document.documentElement.classList.contains('dark');
     const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
     
+    // Clear and set background
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Load existing content if available
     if (selectedNote.content) {
       const img = new window.Image();
       img.onload = () => {
         if (drawingContextRef.current) { // Check if context still exists
+          // Create a temporary canvas to separate background from content
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = canvas.width;
           tempCanvas.height = canvas.height;
           const tempCtx = tempCanvas.getContext('2d');
           
           if (tempCtx) {
-            // Set GCO before drawing image to temp canvas
+            // Set GCO to source-over before drawing image to temp canvas
             tempCtx.globalCompositeOperation = 'source-over';
             tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
             
-            // Now, correctly paint the background on the main canvas first
+            // Clear main canvas and set new background (redundant if already done, but safe)
             drawingContextRef.current.globalCompositeOperation = 'source-over';
             drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height); // Clear again
             drawingContextRef.current.fillStyle = backgroundColor; // Use current theme's background
             drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Extract content (non-background pixels) from the loaded image (which was on its original background)
+            // Extract and redraw only the content (non-background pixels)
             const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             
+            // Create a new image data for content only
             const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
             const contentData = contentImageData.data;
             
@@ -286,17 +306,18 @@ useEffect(() => {
               const b = data[i + 2];
               const a = data[i + 3];
               
-              const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
-              const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
+              // Check if pixel is one of the known background colors
+              const isLightBgPixel = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
+              const isDarkBgPixel = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
               
-              if (!isLightBg && !isDarkBg && a > 0) { // If not a background color and visible
+              if (!isLightBgPixel && !isDarkBgPixel && a > 0) { // If not a background color and visible
                 contentData[i] = r;
                 contentData[i + 1] = g;
                 contentData[i + 2] = b;
                 contentData[i + 3] = a;
               } // Else, it remains transparent in contentImageData (effectively removing old background)
             }
-            // Draw the extracted content onto the main canvas (which now has the correct new background)
+            // Draw the content-only image data onto the main canvas (which now has the correct new background)
             drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure drawing mode
             drawingContextRef.current.putImageData(contentImageData, 0, 0);
           }
@@ -317,7 +338,7 @@ useEffect(() => {
   } else {
     drawingContextRef.current = null;
   }
-}, [selectedNote]); // Removed themeVersion, as this is for note selection
+}, [selectedNote]);
 
 // Effect for handling theme changes without affecting content
 useEffect(() => {
@@ -327,21 +348,22 @@ useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = drawingContextRef.current;
 
-    // 1. Capture current drawn content (excluding the old background)
+    // Capture current drawn content (excluding the old background)
+    // The current canvas already has its background, so we need to extract content
     const currentFullImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const currentFullData = currentFullImageData.data;
     
     const contentOnlyImageData = ctx.createImageData(canvas.width, canvas.height);
     const contentOnlyData = contentOnlyImageData.data;
 
+    // Determine the background color that was *previously* on the canvas
     const prevThemeIsDark = !document.documentElement.classList.contains('dark'); // If current is dark, previous was light
-    const prevBackgroundColor = prevThemeIsDark ? LIGHT_THEME_BACKGROUND : DARK_THEME_BACKGROUND;
     
     let prevBgR = 0, prevBgG = 0, prevBgB = 0;
-    if (prevBackgroundColor === LIGHT_THEME_BACKGROUND) { // #FAF8F4
-        prevBgR = 250; prevBgG = 248; prevBgB = 244;
-    } else { // #17120E
-        prevBgR = 23; prevBgG = 18; prevBgB = 14;
+    if (prevThemeIsDark) { // Previous was light
+        prevBgR = 23; prevBgG = 18; prevBgB = 14; // DARK_THEME_BACKGROUND values
+    } else { // Previous was dark
+        prevBgR = 250; prevBgG = 248; prevBgB = 244; // LIGHT_THEME_BACKGROUND values
     }
     const tolerance = 15;
 
@@ -351,6 +373,7 @@ useEffect(() => {
         const b = currentFullData[i+2];
         const a = currentFullData[i+3];
 
+        // Check if the pixel color matches the *previous* background color
         const isPrevBg = Math.abs(r - prevBgR) < tolerance &&
                          Math.abs(g - prevBgG) < tolerance &&
                          Math.abs(b - prevBgB) < tolerance;
@@ -360,19 +383,20 @@ useEffect(() => {
             contentOnlyData[i+1] = g;
             contentOnlyData[i+2] = b;
             contentOnlyData[i+3] = a;
-        } // Else, it's transparent in contentOnlyImageData
+        } // Else, it's transparent in contentOnlyImageData, effectively removing the old background
     }
     
-    // 2. Apply new theme background
+    // Apply new theme background
     const currentThemeIsDark = document.documentElement.classList.contains('dark');
     const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
     
-    ctx.globalCompositeOperation = 'source-over'; // Ensure correct drawing mode
+    ctx.globalCompositeOperation = 'source-over'; // Ensure correct drawing mode for filling background
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = newBackgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // 3. Redraw content-only image data on new background
+    // Redraw content-only image data on new background
+    ctx.globalCompositeOperation = 'source-over'; // Ensure correct drawing mode for content
     ctx.putImageData(contentOnlyImageData, 0, 0);
   }
 }, [themeVersion, selectedNote?.id]); // themeVersion and selectedNote ID trigger this
@@ -429,8 +453,9 @@ useEffect(() => {
     if (!selectedNote) return;
 
     let contentToSave = currentNoteContent;
-    if (selectedNote.type === 'whiteboard' && canvasRef.current) {
+    if (selectedNote.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
       const canvas = canvasRef.current;
+      const ctx = drawingContextRef.current;
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = canvas.width;
       tempCanvas.height = canvas.height;
@@ -440,16 +465,18 @@ useEffect(() => {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
 
+        // Fill temp canvas with the correct background first
         tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         
-        tempCtx.globalCompositeOperation = 'source-over'; // Ensure drawing mode
+        // Then draw the actual content from the main canvas onto the temp canvas
+        tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
 
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
-         contentToSave = canvas.toDataURL('image/png'); // Fallback, less ideal
+         contentToSave = canvas.toDataURL('image/png'); // Fallback, less ideal as it might not have correct bg
       }
     }
 
@@ -458,9 +485,7 @@ useEffect(() => {
       ? { ...note, title: currentNoteTitle, content: contentToSave, updatedAt: new Date().toISOString() }
       : note
     ));
-    setIsEditingTitle(false); // Ensure title editing mode is exited
-    // Toast for manual save, could be silenced for autosave if desired
-    // For now, let it show for both
+    setIsEditingTitle(false);
     toast({ title: `${selectedNote.type === 'note' ? 'Note' : 'Whiteboard'} Saved`, description: `"${currentNoteTitle}" has been saved.` });
   }, [selectedNote, currentNoteTitle, currentNoteContent, setNotes, toast]);
 
@@ -481,8 +506,6 @@ useEffect(() => {
     }
 
     const isNoteType = selectedNote.type === 'note';
-    // Check if title or content (for notes) has actually changed since last save
-    // This prevents saving on initial load if no interaction happens
     const titleActuallyChanged = currentNoteTitle !== selectedNote.title;
     const contentActuallyChanged = isNoteType && currentNoteContent !== selectedNote.content;
 
@@ -509,20 +532,20 @@ useEffect(() => {
   };
 
   const handleToggleBookmark = (noteId: string) => {
-    setNotes(prev => prev.map(note =>
-      note.id === noteId
-        ? { ...note, isBookmarked: !note.isBookmarked }
-        : note
-    ));
-    const note = notes.find(n => n.id === noteId); // notes here might be stale, better to find from new prev
-    if (note) { // Re-check with potentially updated notes array from previous line
-       const updatedNote = prev.find(n => n.id === noteId);
-       if (updatedNote) {
+    let bookmarkedState = false;
+    setNotes(prev => prev.map(note => {
+      if (note.id === noteId) {
+        bookmarkedState = !note.isBookmarked;
+        return { ...note, isBookmarked: !note.isBookmarked };
+      }
+      return note;
+    }));
+    const noteBeingToggled = notes.find(n => n.id === noteId);
+    if (noteBeingToggled) {
         toast({
-            title: updatedNote.isBookmarked ? "Bookmark Added" : "Bookmark Removed", // Logic inverted here
-            description: `"${updatedNote.title}" has been ${updatedNote.isBookmarked ? "added to" : "removed from"} bookmarks.`
+            title: bookmarkedState ? "Bookmark Added" : "Bookmark Removed",
+            description: `"${noteBeingToggled.title}" has been ${bookmarkedState ? "added to" : "removed from"} bookmarks.`
         });
-       }
     }
   };
 
@@ -621,7 +644,7 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out'; 
+    ctx.globalCompositeOperation = 'destination-out';
     ctx.lineWidth = eraserWidth;
   }
 
@@ -643,7 +666,7 @@ const draw = useCallback((event: MouseEvent | TouchEvent) => {
 }, [selectedNote, getEventCoordinates]);
 
 const stopDrawing = useCallback(() => {
-  if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return; // Only if actually drawing
+  if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
   
   isDrawingRef.current = false;
   if (drawingContextRef.current) {
@@ -651,7 +674,6 @@ const stopDrawing = useCallback(() => {
   }
   lastPositionRef.current = null;
 
-  // Trigger autosave for whiteboard content change
   if (autosaveTimeoutRef.current) {
     clearTimeout(autosaveTimeoutRef.current);
   }
