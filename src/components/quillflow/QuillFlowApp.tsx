@@ -180,8 +180,7 @@ export default function QuillFlowApp() {
     const scaleY = canvas.height / rect.height; 
 
     const finalX = (clientX - rect.left) * scaleX;
-    const finalY = ((clientY - rect.top) * scaleY) + (scrollContainer.scrollTop * scaleY) ;
-    
+    const finalY = (clientY - rect.top) * scaleY; 
      return { x: finalX, y: finalY };
 
   }, []);
@@ -230,29 +229,38 @@ export default function QuillFlowApp() {
             return;
         }
         drawingContextRef.current = ctx;
-
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        const currentThemeIsDark = document.documentElement.classList.contains('dark');
-        const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+        // Ensure canvas context is in 'source-over' for initial drawing/filling
+        const oldGCO = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = 'source-over';
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
         if (selectedNote.content) { 
             const img = new window.Image();
             img.onload = () => {
                 if (drawingContextRef.current) { 
+                   ctx.clearRect(0, 0, canvas.width, canvas.height); 
                    drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
                 }
             };
             img.onerror = () => {
-                console.error("Failed to load whiteboard image content for selected note. Displaying clean background.");
+                console.error("Failed to load whiteboard image content. Displaying clean background.");
+                const currentThemeIsDark = document.documentElement.classList.contains('dark');
+                const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = backgroundColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
             img.src = selectedNote.content;
+        } else { 
+            const currentThemeIsDark = document.documentElement.classList.contains('dark');
+            const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = backgroundColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
+        ctx.globalCompositeOperation = oldGCO; // Restore GCO if it was changed
     } else {
         drawingContextRef.current = null; 
     }
@@ -260,7 +268,7 @@ export default function QuillFlowApp() {
 
   // Effect for handling theme changes for an active whiteboard
   useEffect(() => {
-    if (themeVersion === 0) return; // Don't run on initial mount before theme is possibly set
+    if (themeVersion === 0) return; 
 
     if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
         const canvas = canvasRef.current;
@@ -270,11 +278,16 @@ export default function QuillFlowApp() {
 
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+        
+        const oldGCO = ctx.globalCompositeOperation;
+        ctx.globalCompositeOperation = 'source-over'; 
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = newBackgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
+        ctx.globalCompositeOperation = oldGCO; 
+
         if (liveDrawingDataUrl) {
             const img = new window.Image();
             img.onload = () => {
@@ -354,9 +367,14 @@ export default function QuillFlowApp() {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         
+        const oldTempGCO = tempCtx.globalCompositeOperation;
+        tempCtx.globalCompositeOperation = 'source-over';
+
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height); // Draw visible canvas onto temp canvas
+        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height); 
+        
+        tempCtx.globalCompositeOperation = oldTempGCO; 
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
          contentToSave = canvas.toDataURL('image/png'); 
@@ -1028,5 +1046,5 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-    
 
+    
