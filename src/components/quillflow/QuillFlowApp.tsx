@@ -162,10 +162,10 @@ export default function QuillFlowApp() {
     const canvas = canvasRef.current;
     const scrollContainer = scrollContainerRef.current;
     if (!canvas || !scrollContainer) return null;
-  
+
     const rect = canvas.getBoundingClientRect();
     let clientX, clientY;
-  
+
     if (event instanceof MouseEvent) {
       clientX = event.clientX;
       clientY = event.clientY;
@@ -175,17 +175,18 @@ export default function QuillFlowApp() {
     } else {
       return null;
     }
-    
+  
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-  
+
     const xOnCanvas = (clientX - rect.left);
     const yOnCanvas = (clientY - rect.top);
-  
-    // For Y, we also need to consider the scroll position of the container
-    // but the scaling should apply to the yOnCanvas relative to the *visible* part of the canvas
+    
+    // Apply scaling and consider scroll offset for Y
     const finalX = xOnCanvas * scaleX;
-    const finalY = (yOnCanvas * scaleY) + (scrollContainer.scrollTop * scaleY); // Apply scaling to scrollTop too
+    // For Y, we scale the coordinate relative to the visible part of the canvas, 
+    // then add the scaled scroll offset.
+    const finalY = (yOnCanvas * scaleY) + (scrollContainer.scrollTop * scaleY);
     
     return { x: finalX, y: finalY };
   }, []);
@@ -223,75 +224,131 @@ export default function QuillFlowApp() {
   }, [selectedNote]);
 
 
+  // Effect for initializing whiteboard when note is selected
   useEffect(() => {
     if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            drawingContextRef.current = null; 
-            return;
-        }
-        drawingContextRef.current = ctx;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        
-        const currentThemeIsDark = document.documentElement.classList.contains('dark');
-        const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-        
-        ctx.globalCompositeOperation = 'source-over'; // Ensure GCO is source-over for background fill
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        drawingContextRef.current = null;
+        return;
+      }
+      drawingContextRef.current = ctx;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      const currentThemeIsDark = document.documentElement.classList.contains('dark');
+      const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+      
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        if (selectedNote.content) { 
-            const img = new window.Image();
-            img.onload = () => {
-                if (drawingContextRef.current) { 
-                   drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure GCO is source-over for drawing image
-                   drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (selectedNote.content) {
+        const img = new window.Image();
+        img.onload = () => {
+          if (drawingContextRef.current) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            if (tempCtx) {
+              tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              
+              drawingContextRef.current.globalCompositeOperation = 'source-over';
+              drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
+              drawingContextRef.current.fillStyle = backgroundColor;
+              drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
+              
+              const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+              const data = imageData.data;
+              
+              const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
+              const contentData = contentImageData.data;
+              
+              const lightBgR = 250, lightBgG = 248, lightBgB = 244; // #FAF8F4
+              const darkBgR = 23, darkBgG = 18, darkBgB = 14; // #17120E
+              const tolerance = 15;
+
+              for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                const a = data[i + 3];
+                
+                const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
+                const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
+                
+                if (!isLightBg && !isDarkBg && a > 0) {
+                  contentData[i] = r;
+                  contentData[i + 1] = g;
+                  contentData[i + 2] = b;
+                  contentData[i + 3] = a;
+                } else {
+                  contentData[i + 3] = 0; // Make transparent
                 }
-            };
-            img.onerror = () => {
-                console.error("Failed to load whiteboard image content for note selection.");
+              }
+              drawingContextRef.current.putImageData(contentImageData, 0, 0);
             }
-            img.src = selectedNote.content;
-        }
+          }
+        };
+        img.onerror = () => {
+          console.error("Failed to load whiteboard image content for note selection.");
+        };
+        img.src = selectedNote.content;
+      }
     } else {
-        drawingContextRef.current = null; 
+      drawingContextRef.current = null;
     }
-  }, [selectedNote]); 
+  }, [selectedNote]);
 
+  // Effect for handling theme changes without affecting content
   useEffect(() => {
     if (themeVersion === 0) return; 
 
     if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
-        const canvas = canvasRef.current;
-        const ctx = drawingContextRef.current;
+      const canvas = canvasRef.current;
+      const ctx = drawingContextRef.current;
 
-        const liveDrawingDataUrl = canvas.toDataURL('image/png');
+      const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = currentImageData.data;
+      
+      const contentImageData = ctx.createImageData(canvas.width, canvas.height);
+      const contentData = contentImageData.data;
 
-        const currentThemeIsDark = document.documentElement.classList.contains('dark');
-        const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+      const lightBgR = 250, lightBgG = 248, lightBgB = 244; // #FAF8F4
+      const darkBgR = 23, darkBgG = 18, darkBgB = 14; // #17120E
+      const tolerance = 15;
+      
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
         
-        ctx.globalCompositeOperation = 'source-over';  // Ensure GCO is source-over for background fill
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = newBackgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
+        const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
         
-        if (liveDrawingDataUrl) {
-            const img = new window.Image();
-            img.onload = () => {
-                if (drawingContextRef.current) { 
-                    drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure GCO is source-over for drawing image
-                    drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
-                }
-            };
-            img.onerror = (e) => {
-                console.error("Error loading live drawing data for theme change:", e);
-            }
-            img.src = liveDrawingDataUrl;
+        if (!isLightBg && !isDarkBg && a > 0) {
+          contentData[i] = r;
+          contentData[i + 1] = g;
+          contentData[i + 2] = b;
+          contentData[i + 3] = a;
         }
+        // Background pixels (or pixels matching background colors) remain transparent (alpha 0)
+      }
+
+      const currentThemeIsDark = document.documentElement.classList.contains('dark');
+      const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+      
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = newBackgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.putImageData(contentImageData, 0, 0);
     }
   }, [themeVersion, selectedNote?.id]);
 
@@ -351,20 +408,17 @@ export default function QuillFlowApp() {
     if (selectedNote.type === 'whiteboard' && canvasRef.current) {
       const canvas = canvasRef.current;
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = WHITEBOARD_DRAWABLE_WIDTH; 
-      tempCanvas.height = WHITEBOARD_DRAWABLE_HEIGHT;
+      tempCanvas.width = canvas.width; 
+      tempCanvas.height = canvas.height;
       const tempCtx = tempCanvas.getContext('2d');
 
       if (tempCtx) {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         
-        tempCtx.globalCompositeOperation = 'source-over'; // Ensure GCO for background fill
-
+        tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-        tempCtx.globalCompositeOperation = 'source-over'; // Ensure GCO for drawing main canvas content
         tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height); 
         
         contentToSave = tempCanvas.toDataURL('image/png');
@@ -487,7 +541,7 @@ export default function QuillFlowApp() {
 
   const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     if (selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
-    event.preventDefault(); 
+    event.preventDefault();
     const coords = getEventCoordinates(event);
     if (!coords) return;
 
@@ -499,19 +553,22 @@ export default function QuillFlowApp() {
       ctx.strokeStyle = penColor;
       ctx.lineWidth = DEFAULT_PEN_WIDTH;
     } else if (drawingTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out'; 
+      const currentThemeIsDark = document.documentElement.classList.contains('dark');
+      const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+      
+      ctx.globalCompositeOperation = 'source-over'; // Eraser now paints with background color
+      ctx.strokeStyle = backgroundColor;
       ctx.lineWidth = ERASER_WIDTH;
     }
     
     ctx.beginPath();
     ctx.moveTo(coords.x, coords.y);
     lastPositionRef.current = coords;
-
   }, [selectedNote, penColor, drawingTool, getEventCoordinates]);
 
   const draw = useCallback((event: MouseEvent | TouchEvent) => {
     if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
-     event.preventDefault();
+    event.preventDefault();
     const coords = getEventCoordinates(event);
     if (!coords || !lastPositionRef.current) return;
     
@@ -920,7 +977,7 @@ export default function QuillFlowApp() {
                       height={WHITEBOARD_DRAWABLE_HEIGHT}
                       className="border border-border shadow-inner bg-transparent cursor-crosshair"
                       aria-label="Whiteboard drawing area"
-                      style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'none' }} 
+                      style={{ width: '100%', height: 'auto', aspectRatio: `${WHITEBOARD_DRAWABLE_WIDTH}/${WHITEBOARD_DRAWABLE_HEIGHT}`, display: 'block', touchAction: 'none' }} 
                     />
                   </div>
                 )}
@@ -1039,7 +1096,3 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-
-    
-
-    
