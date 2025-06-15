@@ -28,13 +28,14 @@ import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
   Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type,
-  Heading1, Heading2, Heading3, Highlighter, Pencil, Eraser, StickyNote
+  Heading1, Heading2, Heading3, Highlighter, Pencil, Eraser, StickyNote, SlidersHorizontal,
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { DailyQuote } from './DailyQuote';
 import type { Notebook, Note } from '@/types';
 import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } from '@/ai/flows/summarize-notes';
+import { Slider } from '@/components/ui/slider';
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star', 'StickyNote'];
 const notebookColorOptions = ['#352208', '#E1BB80', '#7B6B43', '#685634', '#806443', '#ffd93d', '#65B0E2', '#6C3F26'];
@@ -44,7 +45,9 @@ const HIGHLIGHT_COLOR = 'yellow';
 const whiteboardPenColors = ['#000000', '#FF0000', '#008000', '#0000FF', '#FFFF00', '#FFA500', '#800080'];
 const DEFAULT_PEN_COLOR = '#000000';
 const DEFAULT_PEN_WIDTH = 2;
-const ERASER_WIDTH = 20;
+const DEFAULT_ERASER_WIDTH = 20;
+const MIN_ERASER_WIDTH = 2;
+const MAX_ERASER_WIDTH = 50;
 
 
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
@@ -54,22 +57,22 @@ const WHITEBOARD_DRAWABLE_WIDTH = 1200;
 const WHITEBOARD_DRAWABLE_HEIGHT = 800;
 
 
-const LIGHT_THEME_BACKGROUND = '#FAF8F4'; 
-const DARK_THEME_BACKGROUND = '#17120E';  
+const LIGHT_THEME_BACKGROUND = '#FAF8F4';
+const DARK_THEME_BACKGROUND = '#17120E';
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
-  
+
   const [currentNoteTitle, setCurrentNoteTitle] = useState('');
-  const [currentNoteContent, setCurrentNoteContent] = useState(''); 
+  const [currentNoteContent, setCurrentNoteContent] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
   const [newNotebookName, setNewNotebookName] = useState('');
   const [newNotebookColor, setNewNotebookColor] = useState(notebookColorOptions[0]);
-  const [newNotebookIcon, setNewNotebookIcon] = useState(iconOptions[0]);  
+  const [newNotebookIcon, setNewNotebookIcon] = useState(iconOptions[0]);
   const [isNewNotebookDialogOpen, setIsNewNotebookDialogOpen] = useState(false);
   const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null);
 
@@ -81,13 +84,14 @@ export default function QuillFlowApp() {
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null); 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const drawingContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const isDrawingRef = useRef(false);
   const lastPositionRef = useRef<{ x: number; y: number } | null>(null);
   const [penColor, setPenColor] = useState<string>(DEFAULT_PEN_COLOR);
   const [drawingTool, setDrawingTool] = useState<'pen' | 'eraser'>('pen');
   const [themeVersion, setThemeVersion] = useState(0);
+  const [eraserWidth, setEraserWidth] = useState<number>(DEFAULT_ERASER_WIDTH);
 
 
   useEffect(() => {
@@ -96,25 +100,25 @@ export default function QuillFlowApp() {
       if (rawNotebooks) {
         try {
           setNotebooks(JSON.parse(rawNotebooks));
-        } catch { 
-          setNotebooks([]); 
+        } catch {
+          setNotebooks([]);
         }
       } else {
-        setNotebooks([]); 
+        setNotebooks([]);
       }
 
       const rawNotes = localStorage.getItem(LOCAL_STORAGE_NOTES_KEY);
       if (rawNotes) {
         try {
           setNotes(JSON.parse(rawNotes));
-        } catch { 
-          setNotes([]); 
+        } catch {
+          setNotes([]);
         }
       } else {
          setNotes([]);
       }
     }
-  }, []); 
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -127,14 +131,14 @@ export default function QuillFlowApp() {
       localStorage.setItem(LOCAL_STORAGE_NOTES_KEY, JSON.stringify(notes));
     }
   }, [notes]);
-  
+
   useEffect(() => {
     if (notebooks.length > 0) {
       if (!selectedNotebookId || !notebooks.find(nb => nb.id === selectedNotebookId)) {
         setSelectedNotebookId(notebooks[0].id);
       }
     } else if (notebooks.length === 0 && selectedNotebookId) {
-      setSelectedNotebookId(null); 
+      setSelectedNotebookId(null);
     }
   }, [notebooks, selectedNotebookId]);
 
@@ -146,10 +150,10 @@ export default function QuillFlowApp() {
           setSelectedNoteId(notesInCurrentNotebook[0].id);
         }
       } else {
-        setSelectedNoteId(null); 
+        setSelectedNoteId(null);
       }
     } else {
-      setSelectedNoteId(null); 
+      setSelectedNoteId(null);
     }
   }, [selectedNotebookId, notes, selectedNoteId]);
 
@@ -175,72 +179,15 @@ export default function QuillFlowApp() {
     } else {
       return null;
     }
-    
-    // Calculate scaling factors based on attribute vs. displayed size
+
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-  
-    // Calculate coordinates relative to the canvas element, then scale
+
     const xOnCanvas = (clientX - rect.left) * scaleX;
-    const yOnCanvas = (clientY - rect.top) * scaleY;
-    
-    // For Y, also add the scroll offset of the container, then scale if canvas display height is also responsive
-    // However, if canvas CSS height is 'auto' or fixed (like here where aspect ratio implies fixed height based on width),
-    // scrollTop is applied to the unscaled Y.
-    // The current canvas style `height: 'auto'` combined with `aspectRatio` means its CSS height isn't fixed but derived.
-    // The `scaleY` correctly handles the conversion from this derived CSS height to the attribute height.
-    // The scroll offset should be added *after* scaling to the canvas's coordinate system if we assume
-    // scrollTop refers to scrolling of the element containing the CSS-scaled canvas.
-    // Or, more robustly: translate event Y to be relative to the *scrolling container's* viewport,
-    // then add scroll offset.
-    // Let's try the simpler: (clientY - rect.top) * scaleY + (scrollContainer.scrollTop * scaleY_if_container_scrolls_scaled_content)
-    // Simpler: If rect.top already accounts for the scroll container's viewport position, 
-    // then `(clientY - rect.top)` is the Y on the visible part of the canvas.
-    // Then scale it: `(clientY - rect.top) * scaleY`.
-    // And then add the scroll offset of the canvas's content (which is not directly `scrollContainer.scrollTop` for a scaled canvas without care).
+    const yOnCanvas = ((clientY - rect.top) * scaleY) + (scrollContainer.scrollTop * scaleY) ;
 
-    // Let's use the more direct approach:
-    // X relative to canvas, scaled.
-    // Y relative to canvas, scaled. ScrollTop is tricky here.
-    // The most robust way is to consider the scroll container's scrollTop separately.
-    // The event coordinates (clientX, clientY) are relative to the viewport.
-    // rect.left, rect.top are relative to the viewport.
-    // So, (clientX - rect.left) is x *within the canvas's bounding box*.
-    // (clientY - rect.top) is y *within the canvas's bounding box*.
-    // These are then scaled.
-    // The scroll is on scrollContainerRef, which makes the canvas *appear* at a different vertical position
-    // within that container. The `rect.top` should already reflect the visible part of the canvas.
-    // The issue is if `canvas.height` (attribute) is much larger than `rect.height` (CSS pixels).
 
-    const finalX = (clientX - rect.left) * (canvas.width / rect.width);
-    // Y coordinate needs to account for the scroll offset of the *container* and scaling
-    // (clientY - rect.top) is the click relative to the visible part of the canvas
-    // scrollContainer.scrollTop is how much the container has been scrolled
-    // The canvas's actual drawing surface might be scrolled out of view.
-    // The y-coordinate on the full canvas = (click_y_on_visible_canvas_part + pixels_scrolled_internally_by_canvas)
-    // This interpretation was complex. The user's previous fix attempt had:
-    // const finalY = (yOnCanvas * scaleY) + (scrollContainer.scrollTop * scaleY); <- This assumes scrollTop scales, which is not direct.
-    // A more standard interpretation:
-    const finalY = ((clientY - rect.top) * (canvas.height / rect.height)) + 0; // Assuming rect.top already reflects scroll of parent
-                                                                          // This '0' is wrong if canvas itself can scroll inside scrollContainer (which it can't, container scrolls)
-    // Let's stick to the simpler version, but ensure scaleY is used for scrollTop too if rect.height is the scaled one.
-    // No, scrollTop is in CSS pixels of the scrollContainer.
-    // It should be: Y relative to canvas origin + scroll offset of container, then scaled if canvas content itself scales with fixed container.
-    // Given canvas style width:100%, height:auto, aspectRatio - its rect.height will change with rect.width.
-
-    // The most reliable approach:
-    // 1. Get click relative to canvas's visual bounding box:
-    let x = clientX - rect.left;
-    let y = clientY - rect.top;
-    // 2. Add scroll offset of the container (if the canvas doesn't fill the container and container scrolls)
-    // Since canvas width is 100%, only vertical scroll is relevant for the container.
-    // y += scrollContainer.scrollTop; // This needs to be re-evaluated. rect.top should already account for this.
-
-    // 3. Scale these coordinates to the canvas's internal resolution
-    const trueX = x * (canvas.width / rect.width);
-    const trueY = y * (canvas.height / rect.height);
-    
-    return { x: trueX, y: trueY };
+    return { x: xOnCanvas, y: yOnCanvas };
 
   }, []);
 
@@ -308,6 +255,7 @@ useEffect(() => {
           const tempCtx = tempCanvas.getContext('2d');
           
           if (tempCtx) {
+            tempCtx.globalCompositeOperation = 'source-over';
             tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
             
             drawingContextRef.current.globalCompositeOperation = 'source-over';
@@ -321,9 +269,9 @@ useEffect(() => {
             const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
             const contentData = contentImageData.data;
             
-            const lightBgR = 250, lightBgG = 248, lightBgB = 244; 
-            const darkBgR = 23, darkBgG = 18, darkBgB = 14; 
-            const tolerance = 10; 
+            const lightBgR = 250, lightBgG = 248, lightBgB = 244;
+            const darkBgR = 23, darkBgG = 18, darkBgB = 14;
+            const tolerance = 10;
 
             for (let i = 0; i < data.length; i += 4) {
               const r = data[i];
@@ -340,9 +288,10 @@ useEffect(() => {
                 contentData[i + 2] = b;
                 contentData[i + 3] = a;
               } else {
-                contentData[i + 3] = 0; 
+                contentData[i + 3] = 0;
               }
             }
+            drawingContextRef.current.globalCompositeOperation = 'source-over';
             drawingContextRef.current.putImageData(contentImageData, 0, 0);
           }
         }
@@ -359,12 +308,13 @@ useEffect(() => {
 
 // Effect for handling theme changes without affecting content
 useEffect(() => {
-  if (themeVersion === 0) return; 
+  if (themeVersion === 0) return;
 
   if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
     const canvas = canvasRef.current;
     const ctx = drawingContextRef.current;
 
+    ctx.globalCompositeOperation = 'source-over';
     const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = currentImageData.data;
     
@@ -373,7 +323,7 @@ useEffect(() => {
 
     const lightBgR = 250, lightBgG = 248, lightBgB = 244;
     const darkBgR = 23, darkBgG = 18, darkBgB = 14;
-    const tolerance = 15; 
+    const tolerance = 15;
       
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
@@ -400,6 +350,7 @@ useEffect(() => {
     ctx.fillStyle = newBackgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
+    ctx.globalCompositeOperation = 'source-over';
     ctx.putImageData(contentImageData, 0, 0);
   }
 }, [themeVersion, selectedNote?.id]);
@@ -438,7 +389,7 @@ useEffect(() => {
       id: `item-${Date.now()}`,
       notebookId: selectedNotebookId,
       title: type === 'note' ? 'Untitled Note' : 'Untitled Whiteboard',
-      content: '', 
+      content: '',
       type: type,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -460,28 +411,28 @@ useEffect(() => {
     if (selectedNote.type === 'whiteboard' && canvasRef.current) {
       const canvas = canvasRef.current;
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = canvas.width; 
+      tempCanvas.width = canvas.width;
       tempCanvas.height = canvas.height;
       const tempCtx = tempCanvas.getContext('2d');
 
       if (tempCtx) {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-        
+
         tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height); 
-        
+        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
-         contentToSave = canvas.toDataURL('image/png'); 
+         contentToSave = canvas.toDataURL('image/png');
       }
     }
-    
-    setNotes(prev => prev.map(note => 
-      note.id === selectedNote.id 
-      ? { ...note, title: currentNoteTitle, content: contentToSave, updatedAt: new Date().toISOString() } 
+
+    setNotes(prev => prev.map(note =>
+      note.id === selectedNote.id
+      ? { ...note, title: currentNoteTitle, content: contentToSave, updatedAt: new Date().toISOString() }
       : note
     ));
     setIsEditingTitle(false);
@@ -497,8 +448,8 @@ useEffect(() => {
   };
 
   const handleToggleBookmark = (noteId: string) => {
-    setNotes(prev => prev.map(note => 
-      note.id === noteId 
+    setNotes(prev => prev.map(note =>
+      note.id === noteId
         ? { ...note, isBookmarked: !note.isBookmarked }
         : note
     ));
@@ -513,7 +464,7 @@ useEffect(() => {
 
   const handleSummarizeNote = async () => {
     if (!selectedNote || selectedNote.type === 'whiteboard') return;
-    
+
     const textContent = editorRef.current?.innerText || '';
     if (!textContent.trim()) {
         toast({ title: "Error", description: "No content to summarize.", variant: "destructive" });
@@ -535,7 +486,7 @@ useEffect(() => {
       setIsSummarizing(false);
     }
   };
-  
+
   const execFormatCommand = (command: string, value?: string) => {
     if (selectedNote?.type !== 'note' || !editorRef.current) return;
     editorRef.current.focus();
@@ -554,9 +505,9 @@ useEffect(() => {
       };
       reader.readAsDataURL(file);
     }
-    if(imageInputRef.current) imageInputRef.current.value = ""; 
+    if(imageInputRef.current) imageInputRef.current.value = "";
   };
-  
+
   const notesInSelectedNotebook = useMemo(() => {
     if (!selectedNotebookId) return [];
     return notes.filter(note => note.notebookId === selectedNotebookId);
@@ -565,7 +516,7 @@ useEffect(() => {
   const bookmarkedNotes = useMemo(() => {
     return notes.filter(note => note.isBookmarked);
   }, [notes]);
-  
+
   const activeNotebookColor = useMemo(() => {
     if (selectedNote && notebooks) {
       const notebook = notebooks.find(nb => nb.id === selectedNote.notebookId);
@@ -577,7 +528,7 @@ useEffect(() => {
 
   const handleDeleteNotebook = (notebook: Notebook) => {
     const notesToDelete = notes.filter(note => note.notebookId === notebook.id);
-    
+
     setNotes(prev => prev.filter(note => note.notebookId !== notebook.id));
     setNotebooks(prev => prev.filter(nb => nb.id !== notebook.id));
 
@@ -585,9 +536,9 @@ useEffect(() => {
       setSelectedNotebookId(null);
     }
     setNotebookToDelete(null);
-    toast({ 
-      title: "Notebook Deleted", 
-      description: `"${notebook.name}" and its ${notesToDelete.length} item${notesToDelete.length === 1 ? '' : 's'} have been deleted.` 
+    toast({
+      title: "Notebook Deleted",
+      description: `"${notebook.name}" and its ${notesToDelete.length} item${notesToDelete.length === 1 ? '' : 's'} have been deleted.`
     });
   };
 
@@ -599,27 +550,27 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
 
   isDrawingRef.current = true;
   const ctx = drawingContextRef.current;
-  
+
   if (drawingTool === 'pen') {
     ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out'; 
-    ctx.lineWidth = ERASER_WIDTH;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineWidth = eraserWidth;
   }
-  
+
   ctx.beginPath();
   ctx.moveTo(coords.x, coords.y);
   lastPositionRef.current = coords;
-}, [selectedNote, penColor, drawingTool, getEventCoordinates]);
+}, [selectedNote, penColor, drawingTool, getEventCoordinates, eraserWidth]);
 
 const draw = useCallback((event: MouseEvent | TouchEvent) => {
   if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
   event.preventDefault();
   const coords = getEventCoordinates(event);
   if (!coords || !lastPositionRef.current) return;
-  
+
   const ctx = drawingContextRef.current;
   ctx.lineTo(coords.x, coords.y);
   ctx.stroke();
@@ -673,7 +624,7 @@ const stopDrawing = useCallback(() => {
       <Sidebar variant="sidebar" collapsible="icon" className="border-r shadow-md">
         <SidebarHeader className="p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">               
+            <div className="flex items-center gap-2">
               <Image src={bearIcon} alt="Bear Icon" className="h-7 w-7" width={28} height={28} />
               <h1 className="text-2xl font-headline text-foreground group-data-[collapsible=icon]:hidden">Notatie</h1>
             </div>
@@ -687,7 +638,7 @@ const stopDrawing = useCallback(() => {
         <SidebarContent className="p-2">
           <SidebarGroup className="group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel className="flex items-center justify-between">
-              Notebooks              
+              Notebooks
               <Button variant="sidebarAction" size="icon" className="h-7 w-7" onClick={() => setIsNewNotebookDialogOpen(true)}>
                 <PlusCircle className="h-4 w-4" />
               </Button>
@@ -729,9 +680,9 @@ const stopDrawing = useCallback(() => {
             </SidebarGroupLabel>
             <SidebarMenu>
               {notebooks.map(nb => (
-                <SidebarMenuItem key={nb.id}>                  
+                <SidebarMenuItem key={nb.id}>
                   <div className="flex items-center w-full gap-1">
-                    <SidebarMenuButton 
+                    <SidebarMenuButton
                       onClick={() => setSelectedNotebookId(nb.id)}
                       isActive={selectedNotebookId === nb.id}
                       className="justify-start flex-grow"
@@ -739,13 +690,13 @@ const stopDrawing = useCallback(() => {
                     >
                       <NotebookIcon name={nb.icon} style={{ color: nb.color }} className="h-5 w-5" />
                       <span className="group-data-[collapsible=icon]:hidden">{nb.name}</span>
-                    </SidebarMenuButton>                    
-                    <Button 
-                      variant="sidebarAction" 
-                      size="icon" 
+                    </SidebarMenuButton>
+                    <Button
+                      variant="sidebarAction"
+                      size="icon"
                       className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
                       onClick={(e) => {
-                        e.stopPropagation(); 
+                        e.stopPropagation();
                         setNotebookToDelete(nb);
                       }}
                     >
@@ -759,27 +710,27 @@ const stopDrawing = useCallback(() => {
               )}
             </SidebarMenu>
           </SidebarGroup>
-          
+
           <SidebarGroup className="mt-4 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel>Items</SidebarGroupLabel>
              <SidebarMenu>
                 {selectedNotebookId && (
                   <>
                   <SidebarMenuItem>
-                    <Button 
-                      variant="sidebarAction" 
-                      size="sm" 
-                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity" 
+                    <Button
+                      variant="sidebarAction"
+                      size="sm"
+                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
                       onClick={handleAddNote}
                     >
                       <FileText className="h-4 w-4"/> New Note
                     </Button>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <Button 
-                      variant="sidebarAction" 
-                      size="sm" 
-                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity" 
+                    <Button
+                      variant="sidebarAction"
+                      size="sm"
+                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
                       onClick={handleAddWhiteboard}
                     >
                       <Pencil className="h-4 w-4"/> New Whiteboard
@@ -790,8 +741,8 @@ const stopDrawing = useCallback(() => {
                 {notesInSelectedNotebook.map(item => (
                   <SidebarMenuItem key={item.id}>
                     <div className="flex items-center w-full gap-1">
-                      <SidebarMenuButton 
-                        onClick={() => setSelectedNoteId(item.id)} 
+                      <SidebarMenuButton
+                        onClick={() => setSelectedNoteId(item.id)}
                         isActive={selectedNoteId === item.id}
                         className="justify-start text-sm flex-grow"
                         tooltip={item.title}
@@ -799,9 +750,9 @@ const stopDrawing = useCallback(() => {
                         {item.type === 'note' ? <FileText className="h-4 w-4 opacity-70" /> : <Pencil className="h-4 w-4 opacity-70" />}
                         <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
                       </SidebarMenuButton>
-                      <Button 
-                        variant="sidebarAction" 
-                        size="icon" 
+                      <Button
+                        variant="sidebarAction"
+                        size="icon"
                         className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -827,7 +778,7 @@ const stopDrawing = useCallback(() => {
              <SidebarMenu>
                 {bookmarkedNotes.map(note => (
                   <SidebarMenuItem key={note.id}>
-                    <SidebarMenuButton 
+                    <SidebarMenuButton
                       onClick={() => { setSelectedNotebookId(note.notebookId); setSelectedNoteId(note.id); }}
                       className="justify-start text-sm"
                       tooltip={note.title}
@@ -855,19 +806,19 @@ const stopDrawing = useCallback(() => {
       <SidebarInset className="flex-1 flex flex-col bg-background">
         {selectedNote ? (
           <div className="flex-1 flex flex-col p-4 md:p-6 space-y-4 overflow-y-auto">
-            <Card 
-              className="flex-1 flex flex-col shadow-lg rounded-xl overflow-hidden border-4" 
+            <Card
+              className="flex-1 flex flex-col shadow-lg rounded-xl overflow-hidden border-4"
               style={{borderColor: activeNotebookColor}}
             >
-              <CardHeader 
+              <CardHeader
                 className="p-4 border-b flex flex-row items-center justify-between space-y-0"
                 style={{backgroundColor: activeNotebookColor ? `${activeNotebookColor}33` : 'var(--card)' }}
               >
                 <div className="flex items-center gap-2 flex-grow min-w-0">
                   {isEditingTitle ? (
-                     <Input 
-                        value={currentNoteTitle} 
-                        onChange={(e) => setCurrentNoteTitle(e.target.value)} 
+                     <Input
+                        value={currentNoteTitle}
+                        onChange={(e) => setCurrentNoteTitle(e.target.value)}
                         onBlur={handleSaveNote}
                         onKeyDown={(e) => e.key === 'Enter' && handleSaveNote()}
                         className="text-2xl font-headline h-auto p-0 border-0 focus-visible:ring-0 flex-grow bg-transparent placeholder-muted-foreground"
@@ -881,9 +832,9 @@ const stopDrawing = useCallback(() => {
                   )}
                 </div>
                 <div className="flex items-center space-x-1">
-                  <Button 
-                    variant="sidebarAction" 
-                    size="icon" 
+                  <Button
+                    variant="sidebarAction"
+                    size="icon"
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -893,20 +844,20 @@ const stopDrawing = useCallback(() => {
                   >
                     <BookMarked className={`h-4 w-4 ${selectedNote.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
                   </Button>
-                  <Button 
-                    variant="sidebarAction" 
-                    size="icon" 
+                  <Button
+                    variant="sidebarAction"
+                    size="icon"
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
-                    onClick={handleSaveNote} 
+                    onClick={handleSaveNote}
                     aria-label="Save item"
                   >
                     <Save className="h-4 w-4 text-green-600" />
                   </Button>
-                   <Button 
-                    variant="sidebarAction" 
-                    size="icon" 
+                   <Button
+                    variant="sidebarAction"
+                    size="icon"
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
-                    onClick={handleDeleteNote} 
+                    onClick={handleDeleteNote}
                     aria-label="Delete item"
                   >
                     <Trash2 className="h-4 w-4 text-red-600" />
@@ -962,49 +913,82 @@ const stopDrawing = useCallback(() => {
 
                 {selectedNote.type === 'whiteboard' && (
                   <div className="mb-2 flex flex-wrap items-center gap-1 border rounded-md p-1 bg-muted overflow-x-auto">
-                    <Button 
-                        variant={drawingTool === 'pen' ? 'secondary' : 'ghost'} 
-                        size="sm" 
-                        className="text-muted-foreground" title="Pen Tool" 
+                    <Button
+                        variant={drawingTool === 'pen' ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="text-muted-foreground" title="Pen Tool"
                         onClick={() => setDrawingTool('pen')}
                     >
                         <Pencil className="h-5 w-5" />
                     </Button>
-                    <Button 
-                        variant={drawingTool === 'eraser' ? 'secondary' : 'ghost'} 
-                        size="sm" 
-                        className="text-muted-foreground" title="Eraser Tool" 
+                    <Button
+                        variant={drawingTool === 'eraser' ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="text-muted-foreground" title="Eraser Tool"
                         onClick={() => setDrawingTool('eraser')}
                     >
                         <Eraser className="h-5 w-5" />
                     </Button>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Pen Color">
-                            <Palette className="h-5 w-5" style={{color: drawingTool === 'pen' ? penColor : undefined }} />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-2">
-                        <div className="flex flex-wrap gap-1">
-                          {whiteboardPenColors.map(color => (
-                            <Button
-                              key={color}
-                              variant="outline"
-                              size="icon"
-                              className={`h-6 w-6 rounded-full ${penColor === color && drawingTool === 'pen' ? 'ring-2 ring-ring' : ''}`}
-                              style={{ backgroundColor: color }}
-                              onClick={() => { setPenColor(color); setDrawingTool('pen'); }}
-                              aria-label={`Set pen color to ${color}`}
-                            />
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                    {drawingTool === 'pen' && (
+                        <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Pen Color">
+                                <Palette className="h-5 w-5" style={{color: penColor }} />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-2">
+                            <div className="flex flex-wrap gap-1">
+                            {whiteboardPenColors.map(color => (
+                                <Button
+                                key={color}
+                                variant="outline"
+                                size="icon"
+                                className={`h-6 w-6 rounded-full ${penColor === color ? 'ring-2 ring-ring' : ''}`}
+                                style={{ backgroundColor: color }}
+                                onClick={() => { setPenColor(color); }}
+                                aria-label={`Set pen color to ${color}`}
+                                />
+                            ))}
+                            </div>
+                        </PopoverContent>
+                        </Popover>
+                    )}
+                    {drawingTool === 'eraser' && (
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-muted-foreground"
+                                title="Eraser Size"
+                                aria-label="Adjust eraser size"
+                                >
+                                <SlidersHorizontal className="h-5 w-5" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 p-2">
+                                <div className="grid gap-2">
+                                <Label htmlFor="eraser-width-slider" className="text-sm font-medium flex justify-between items-center">
+                                    <span>Eraser Size</span>
+                                    <span>{eraserWidth}px</span>
+                                </Label>
+                                <Slider
+                                    id="eraser-width-slider"
+                                    min={MIN_ERASER_WIDTH}
+                                    max={MAX_ERASER_WIDTH}
+                                    step={1}
+                                    value={[eraserWidth]}
+                                    onValueChange={(value) => setEraserWidth(value[0])}
+                                />
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    )}
                   </div>
                 )}
 
                 {selectedNote.type === 'note' ? (
-                  <div 
+                  <div
                     ref={editorRef}
                     contentEditable
                     suppressContentEditableWarning
@@ -1012,20 +996,20 @@ const stopDrawing = useCallback(() => {
                     data-placeholder="Start writing your brilliant notes here..."
                     className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2"
                     aria-label="Note content"
-                    style={{minHeight: '200px'}} 
+                    style={{minHeight: '200px'}}
                   />
-                ) : ( 
-                  <div 
-                    className="flex-1 w-full flex bg-muted/30 rounded-md overflow-auto relative" 
+                ) : (
+                  <div
+                    className="flex-1 w-full flex bg-muted/30 rounded-md overflow-auto relative"
                     ref={scrollContainerRef}
                   >
-                    <canvas 
-                      ref={canvasRef} 
-                      width={WHITEBOARD_DRAWABLE_WIDTH} 
+                    <canvas
+                      ref={canvasRef}
+                      width={WHITEBOARD_DRAWABLE_WIDTH}
                       height={WHITEBOARD_DRAWABLE_HEIGHT}
                       className="border border-border shadow-inner bg-transparent cursor-crosshair"
                       aria-label="Whiteboard drawing area"
-                      style={{ width: '100%', height: 'auto', aspectRatio: `${WHITEBOARD_DRAWABLE_WIDTH}/${WHITEBOARD_DRAWABLE_HEIGHT}`, display: 'block', touchAction: 'none' }} 
+                      style={{ width: '100%', height: 'auto', aspectRatio: `${WHITEBOARD_DRAWABLE_WIDTH}/${WHITEBOARD_DRAWABLE_HEIGHT}`, display: 'block', touchAction: 'none' }}
                     />
                   </div>
                 )}
@@ -1059,13 +1043,13 @@ const stopDrawing = useCallback(() => {
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <Book className="h-24 w-24 text-muted-foreground/50 mb-6" />
             <h2 className="text-2xl font-headline text-muted-foreground mb-2">
-              {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0 ? 'This notebook is empty' : 
+              {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0 ? 'This notebook is empty' :
                !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook' :
                notebooks.length === 0 ? 'No notebooks yet' : 'Select an item to view'}
             </h2>
             <p className="text-muted-foreground mb-4">
               {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0
-                ? 'Create your first note or whiteboard in this notebook using the buttons in the sidebar.' 
+                ? 'Create your first note or whiteboard in this notebook using the buttons in the sidebar.'
                 : !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook from the sidebar to see its items.'
                 : 'Create a new notebook to start your journey with Notatie!'}
             </p>
@@ -1074,7 +1058,7 @@ const stopDrawing = useCallback(() => {
                 <Button onClick={handleAddNote}><FileText className="mr-2 h-4 w-4" /> Create New Note</Button>
                 <Button onClick={handleAddWhiteboard}><Pencil className="mr-2 h-4 w-4" /> Create New Whiteboard</Button>
               </div>
-            )}            
+            )}
             {notebooks.length === 0 && (
               <div>
                 <Button onClick={() => setIsNewNotebookDialogOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Create New Notebook</Button>
@@ -1111,7 +1095,8 @@ const stopDrawing = useCallback(() => {
                     <Button variant="outline" onClick={() => setIsNewNotebookDialogOpen(false)}>Cancel</Button>
                     <Button onClick={handleAddNotebook}>Create</Button>
                   </DialogFooter>
-                </DialogContent>              </Dialog>
+                </DialogContent>
+              </Dialog>
               </div>
             )}
           </div>
@@ -1126,14 +1111,14 @@ const stopDrawing = useCallback(() => {
           <div className="py-2">
             <p>Are you sure you want to delete "{notebookToDelete?.name}"?</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              This will permanently delete this notebook and all {notes.filter(note => note.notebookId === notebookToDelete?.id).length} items inside it. 
+              This will permanently delete this notebook and all {notes.filter(note => note.notebookId === notebookToDelete?.id).length} items inside it.
               This action cannot be undone.
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNotebookToDelete(null)}>Cancel</Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               onClick={() => notebookToDelete && handleDeleteNotebook(notebookToDelete)}
             >
               Delete Notebook
@@ -1144,6 +1129,3 @@ const stopDrawing = useCallback(() => {
     </SidebarProvider>
   );
 }
-
-
-    
