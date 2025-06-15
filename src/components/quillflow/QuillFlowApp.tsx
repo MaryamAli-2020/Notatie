@@ -241,6 +241,7 @@ export default function QuillFlowApp() {
   }, []);
 
 
+// Effect for initializing whiteboard when note is selected
 useEffect(() => {
   if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
     const canvas = canvasRef.current;
@@ -623,7 +624,10 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out'; // Correct eraser operation
+    ctx.globalCompositeOperation = 'source-over'; // Paint over with background color
+    const currentThemeIsDark = document.documentElement.classList.contains('dark');
+    const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+    ctx.strokeStyle = backgroundColor;
     ctx.lineWidth = eraserWidth;
   }
 
@@ -787,68 +791,68 @@ const stopDrawing = useCallback(() => {
           </SidebarGroup>
 
           <SidebarGroup className="mt-4 group-data-[collapsible=icon]:hidden">
-  <SidebarGroupLabel>Items</SidebarGroupLabel>
-  <SidebarMenu>
-    {selectedNotebookId && (
-      <div className="flex gap-2 px-2">
-        <SidebarMenuItem className="flex-1"> 
-          <Button
-            variant="sidebarAction"
-            size="sm"
-            className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
-            onClick={handleAddNote}
-          >
-            <FileText className="h-4 w-4"/> 
-            <span className="group-data-[collapsible=icon]:hidden">Note</span>
-          </Button>
-        </SidebarMenuItem>
-        <SidebarMenuItem className="flex-1">
-          <Button
-            variant="sidebarAction"
-            size="sm"
-            className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
-            onClick={handleAddWhiteboard}
-          >
-            <Pencil className="h-4 w-4"/> 
-            <span className="group-data-[collapsible=icon]:hidden">Board</span>
-          </Button>
-        </SidebarMenuItem>
-        </div>
-    )}
-    {notesInSelectedNotebook.map(item => (
-      <SidebarMenuItem key={item.id}>
-        <div className="flex items-center w-full gap-1">
-          <SidebarMenuButton
-            onClick={() => setSelectedNoteId(item.id)}
-            isActive={selectedNoteId === item.id}
-            className="justify-start text-sm flex-grow"
-            tooltip={item.title}
-          >
-            {item.type === 'note' ? <FileText className="h-4 w-4 opacity-70" /> : <Pencil className="h-4 w-4 opacity-70" />}
-            <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
-          </SidebarMenuButton>
-          <Button
-            variant="sidebarAction"
-            size="icon"
-            className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleToggleBookmark(item.id);
-            }}
-          >
-            <BookMarked className={`h-4 w-4 ${item.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
-          </Button>
-        </div>
-      </SidebarMenuItem>
-    ))}
-    {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
-        <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No items in this notebook yet.</p>
-    )}
-    {!selectedNotebookId && notebooks.length > 0 && (
-          <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see items.</p>
-    )}
-  </SidebarMenu>
-</SidebarGroup>
+            <SidebarGroupLabel>Items</SidebarGroupLabel>
+            <SidebarMenu>
+              {selectedNotebookId && (
+                <div className="flex gap-2 px-2">
+                  <SidebarMenuItem className="flex-1"> 
+                    <Button
+                      variant="sidebarAction"
+                      size="sm"
+                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
+                      onClick={handleAddNote}
+                    >
+                      <FileText className="h-4 w-4"/> 
+                      <span className="group-data-[collapsible=icon]:hidden">Note</span>
+                    </Button>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem className="flex-1">
+                    <Button
+                      variant="sidebarAction"
+                      size="sm"
+                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
+                      onClick={handleAddWhiteboard}
+                    >
+                      <Pencil className="h-4 w-4"/> 
+                      <span className="group-data-[collapsible=icon]:hidden">Board</span>
+                    </Button>
+                  </SidebarMenuItem>
+                  </div>
+              )}
+              {notesInSelectedNotebook.map(item => (
+                <SidebarMenuItem key={item.id}>
+                  <div className="flex items-center w-full gap-1">
+                    <SidebarMenuButton
+                      onClick={() => setSelectedNoteId(item.id)}
+                      isActive={selectedNoteId === item.id}
+                      className="justify-start text-sm flex-grow"
+                      tooltip={item.title}
+                    >
+                      {item.type === 'note' ? <FileText className="h-4 w-4 opacity-70" /> : <Pencil className="h-4 w-4 opacity-70" />}
+                      <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
+                    </SidebarMenuButton>
+                    <Button
+                      variant="sidebarAction"
+                      size="icon"
+                      className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleBookmark(item.id);
+                      }}
+                    >
+                      <BookMarked className={`h-4 w-4 ${item.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
+                    </Button>
+                  </div>
+                </SidebarMenuItem>
+              ))}
+              {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
+                  <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No items in this notebook yet.</p>
+              )}
+              {!selectedNotebookId && notebooks.length > 0 && (
+                    <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see items.</p>
+              )}
+            </SidebarMenu>
+          </SidebarGroup>
 
           <SidebarGroup className="mt-4 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel>Bookmarks</SidebarGroupLabel>
@@ -1069,7 +1073,6 @@ const stopDrawing = useCallback(() => {
                   </div>
                 )}
                 
-                {/* Editor Area - Conditionally visible */}
                 <div
                   ref={editorRef}
                   contentEditable={selectedNote?.type === 'note'}
@@ -1084,7 +1087,6 @@ const stopDrawing = useCallback(() => {
                   style={{minHeight: '200px'}}
                 />
 
-                {/* Whiteboard Area - Conditionally visible */}
                 <div
                   className={cn(
                     "flex-1 w-full flex bg-muted/30 rounded-md overflow-auto relative",
