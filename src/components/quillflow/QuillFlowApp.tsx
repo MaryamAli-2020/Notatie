@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import bearIcon from '@/app/bear.png';
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -36,6 +36,8 @@ import { DailyQuote } from './DailyQuote';
 import type { Notebook, Note } from '@/types';
 import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } from '@/ai/flows/summarize-notes';
 import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
+
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star', 'StickyNote'];
 const notebookColorOptions = ['#352208', '#E1BB80', '#7B6B43', '#685634', '#806443', '#ffd93d', '#65B0E2', '#6C3F26'];
@@ -45,9 +47,10 @@ const HIGHLIGHT_COLOR = 'yellow';
 const whiteboardPenColors = ['#000000', '#FF0000', '#008000', '#0000FF', '#FFFF00', '#FFA500', '#800080'];
 const DEFAULT_PEN_COLOR = '#000000';
 const DEFAULT_PEN_WIDTH = 2;
-const DEFAULT_ERASER_WIDTH = 20;
+
 const MIN_ERASER_WIDTH = 2;
 const MAX_ERASER_WIDTH = 50;
+const DEFAULT_ERASER_WIDTH = 20;
 
 
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
@@ -167,24 +170,27 @@ export default function QuillFlowApp() {
   }, [notes, selectedNoteId]);
 
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
       setCurrentNoteContent(selectedNote.content);
 
-      if (selectedNote.type === 'note' && editorRef.current) {
-        editorRef.current.innerHTML = selectedNote.content;
-      } else if (editorRef.current) {
-        // If it's a whiteboard, or if selectedNote exists but isn't type 'note',
-        // ensure the contentEditable div is cleared.
-        editorRef.current.innerHTML = '';
+      if (editorRef.current) {
+        if (selectedNote.type === 'note') {
+          if (editorRef.current.innerHTML !== selectedNote.content) {
+            editorRef.current.innerHTML = selectedNote.content;
+          }
+        } else {
+          if (editorRef.current.innerHTML !== '') {
+            editorRef.current.innerHTML = '';
+          }
+        }
       }
-      setAiSummary(null); // Reset AI summary when note changes
+      setAiSummary(null);
     } else {
-      // No note selected, clear everything
       setCurrentNoteTitle('');
       setCurrentNoteContent('');
-      if (editorRef.current) {
+      if (editorRef.current && editorRef.current.innerHTML !== '') {
         editorRef.current.innerHTML = '';
       }
       setAiSummary(null);
@@ -212,18 +218,8 @@ export default function QuillFlowApp() {
 
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-
-    // Calculate cursor position relative to the canvas, considering canvas scroll
-    // The scroll adjustment is tricky and depends on how the scroll container interacts with the canvas.
-    // If canvas itself scrolls within the scrollContainer, scrollTop is needed.
-    // If scrollContainer scrolls and canvas is fixed within it, clientY relative to rect.top is fine.
-    // Let's assume scrollContainer's scrollTop is the one affecting the perceived Y.
+    
     const xOnCanvas = (clientX - rect.left) * scaleX;
-    // Correct Y calculation by adding scrollContainer's scrollTop *after* scaling
-    // clientY - rect.top gives Y relative to canvas's visible area.
-    // scrollContainer.scrollTop is the amount the *container* is scrolled.
-    // The canvas's top position (rect.top) already accounts for parent scrolling to *its* top.
-    // So if canvas content scrolls, scrollTop within scrollContainer is what matters.
     const yOnCanvas = ((clientY - rect.top) + scrollContainer.scrollTop) * scaleY;
 
 
@@ -244,7 +240,7 @@ export default function QuillFlowApp() {
     return () => observer.disconnect();
   }, []);
 
-// Effect for initializing whiteboard when note is selected
+
 useEffect(() => {
   if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
     const canvas = canvasRef.current;
@@ -260,45 +256,38 @@ useEffect(() => {
     const currentThemeIsDark = document.documentElement.classList.contains('dark');
     const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
     
-    // Clear and set background
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = backgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Load existing content if available
     if (selectedNote.content) {
       const img = new window.Image();
       img.onload = () => {
-        if (drawingContextRef.current) { // Check if context still exists
-          // Create a temporary canvas to separate background from content
+        if (drawingContextRef.current) { 
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = canvas.width;
           tempCanvas.height = canvas.height;
           const tempCtx = tempCanvas.getContext('2d');
           
           if (tempCtx) {
-            // Set GCO to source-over before drawing image to temp canvas
             tempCtx.globalCompositeOperation = 'source-over';
             tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
             
-            // Clear main canvas and set new background (redundant if already done, but safe)
             drawingContextRef.current.globalCompositeOperation = 'source-over';
-            drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height); // Clear again
-            drawingContextRef.current.fillStyle = backgroundColor; // Use current theme's background
+            drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
+            drawingContextRef.current.fillStyle = backgroundColor; 
             drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Extract and redraw only the content (non-background pixels)
             const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             
-            // Create a new image data for content only
             const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
             const contentData = contentImageData.data;
             
-            const lightBgR = 250, lightBgG = 248, lightBgB = 244; // From LIGHT_THEME_BACKGROUND
-            const darkBgR = 23, darkBgG = 18, darkBgB = 14;     // From DARK_THEME_BACKGROUND
-            const tolerance = 10; // Tolerance for color matching
+            const lightBgR = 250, lightBgG = 248, lightBgB = 244;
+            const darkBgR = 23, darkBgG = 18, darkBgB = 14;    
+            const tolerance = 10;
 
             for (let i = 0; i < data.length; i += 4) {
               const r = data[i];
@@ -306,26 +295,23 @@ useEffect(() => {
               const b = data[i + 2];
               const a = data[i + 3];
               
-              // Check if pixel is one of the known background colors
               const isLightBgPixel = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
               const isDarkBgPixel = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
               
-              if (!isLightBgPixel && !isDarkBgPixel && a > 0) { // If not a background color and visible
+              if (!isLightBgPixel && !isDarkBgPixel && a > 0) { 
                 contentData[i] = r;
                 contentData[i + 1] = g;
                 contentData[i + 2] = b;
                 contentData[i + 3] = a;
-              } // Else, it remains transparent in contentImageData (effectively removing old background)
+              } 
             }
-            // Draw the content-only image data onto the main canvas (which now has the correct new background)
-            drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure drawing mode
+            drawingContextRef.current.globalCompositeOperation = 'source-over';
             drawingContextRef.current.putImageData(contentImageData, 0, 0);
           }
         }
       };
       img.onerror = () => {
         console.error("Failed to load whiteboard image content for note selection.");
-         // Fallback: just clear and set background if image fails
         if (drawingContextRef.current) {
             drawingContextRef.current.globalCompositeOperation = 'source-over';
             drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
@@ -340,32 +326,30 @@ useEffect(() => {
   }
 }, [selectedNote]);
 
-// Effect for handling theme changes without affecting content
+
 useEffect(() => {
-  if (themeVersion === 0) return; // Skip initial execution
+  if (themeVersion === 0) return; 
 
   if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
     const canvas = canvasRef.current;
     const ctx = drawingContextRef.current;
-
-    // Capture current drawn content (excluding the old background)
-    // The current canvas already has its background, so we need to extract content
+    
+    ctx.globalCompositeOperation = 'source-over'; 
     const currentFullImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const currentFullData = currentFullImageData.data;
     
     const contentOnlyImageData = ctx.createImageData(canvas.width, canvas.height);
     const contentOnlyData = contentOnlyImageData.data;
 
-    // Determine the background color that was *previously* on the canvas
-    const prevThemeIsDark = !document.documentElement.classList.contains('dark'); // If current is dark, previous was light
+    const prevThemeIsDark = !document.documentElement.classList.contains('dark'); 
     
     let prevBgR = 0, prevBgG = 0, prevBgB = 0;
-    if (prevThemeIsDark) { // Previous was light
-        prevBgR = 23; prevBgG = 18; prevBgB = 14; // DARK_THEME_BACKGROUND values
-    } else { // Previous was dark
-        prevBgR = 250; prevBgG = 248; prevBgB = 244; // LIGHT_THEME_BACKGROUND values
+    if (prevThemeIsDark) { 
+        prevBgR = 23; prevBgG = 18; prevBgB = 14; 
+    } else { 
+        prevBgR = 250; prevBgG = 248; prevBgB = 244;
     }
-    const tolerance = 15;
+    const tolerance = 15; 
 
     for (let i = 0; i < currentFullData.length; i += 4) {
         const r = currentFullData[i];
@@ -373,33 +357,30 @@ useEffect(() => {
         const b = currentFullData[i+2];
         const a = currentFullData[i+3];
 
-        // Check if the pixel color matches the *previous* background color
         const isPrevBg = Math.abs(r - prevBgR) < tolerance &&
                          Math.abs(g - prevBgG) < tolerance &&
                          Math.abs(b - prevBgB) < tolerance;
 
-        if (!isPrevBg && a > 0) { // If not previous background and visible
+        if (!isPrevBg && a > 0) { 
             contentOnlyData[i] = r;
             contentOnlyData[i+1] = g;
             contentOnlyData[i+2] = b;
             contentOnlyData[i+3] = a;
-        } // Else, it's transparent in contentOnlyImageData, effectively removing the old background
+        } 
     }
     
-    // Apply new theme background
     const currentThemeIsDark = document.documentElement.classList.contains('dark');
     const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
     
-    ctx.globalCompositeOperation = 'source-over'; // Ensure correct drawing mode for filling background
+    ctx.globalCompositeOperation = 'source-over'; 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = newBackgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Redraw content-only image data on new background
-    ctx.globalCompositeOperation = 'source-over'; // Ensure correct drawing mode for content
+    ctx.globalCompositeOperation = 'source-over'; 
     ctx.putImageData(contentOnlyImageData, 0, 0);
   }
-}, [themeVersion, selectedNote?.id]); // themeVersion and selectedNote ID trigger this
+}, [themeVersion, selectedNote?.id]); 
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -465,18 +446,16 @@ useEffect(() => {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
 
-        // Fill temp canvas with the correct background first
         tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         
-        // Then draw the actual content from the main canvas onto the temp canvas
         tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
 
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
-         contentToSave = canvas.toDataURL('image/png'); // Fallback, less ideal as it might not have correct bg
+         contentToSave = canvas.toDataURL('image/png'); 
       }
     }
 
@@ -644,7 +623,7 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalCompositeOperation = 'destination-out'; // Correct eraser operation
     ctx.lineWidth = eraserWidth;
   }
 
@@ -917,10 +896,10 @@ const stopDrawing = useCallback(() => {
                      <Input
                         value={currentNoteTitle}
                         onChange={(e) => setCurrentNoteTitle(e.target.value)}
-                        onBlur={() => setIsEditingTitle(false)} // Autosave handles actual save
+                        onBlur={() => setIsEditingTitle(false)} 
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                                setIsEditingTitle(false); // Autosave handles actual save
+                                setIsEditingTitle(false); 
                                 (e.target as HTMLInputElement).blur();
                             }
                         }}
@@ -951,7 +930,7 @@ const stopDrawing = useCallback(() => {
                     variant="sidebarAction"
                     size="icon"
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
-                    onClick={handleSaveNote} // Manual save still available
+                    onClick={handleSaveNote} 
                     aria-label="Save item"
                   >
                     <Save className="h-4 w-4 text-green-600" />
@@ -1089,33 +1068,40 @@ const stopDrawing = useCallback(() => {
                     )}
                   </div>
                 )}
+                
+                {/* Editor Area - Conditionally visible */}
+                <div
+                  ref={editorRef}
+                  contentEditable={selectedNote?.type === 'note'}
+                  suppressContentEditableWarning
+                  onInput={handleContentChange}
+                  data-placeholder="Start writing your brilliant notes here..."
+                  className={cn(
+                    "flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2",
+                    selectedNote?.type !== 'note' && "hidden"
+                  )}
+                  aria-label="Note content"
+                  style={{minHeight: '200px'}}
+                />
 
-                {selectedNote.type === 'note' ? (
-                  <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleContentChange}
-                    data-placeholder="Start writing your brilliant notes here..."
-                    className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2"
-                    aria-label="Note content"
-                    style={{minHeight: '200px'}}
+                {/* Whiteboard Area - Conditionally visible */}
+                <div
+                  className={cn(
+                    "flex-1 w-full flex bg-muted/30 rounded-md overflow-auto relative",
+                    selectedNote?.type !== 'whiteboard' && "hidden"
+                  )}
+                  ref={scrollContainerRef}
+                >
+                  <canvas
+                    ref={canvasRef}
+                    width={WHITEBOARD_DRAWABLE_WIDTH}
+                    height={WHITEBOARD_DRAWABLE_HEIGHT}
+                    className="border border-border shadow-inner bg-transparent cursor-crosshair"
+                    aria-label="Whiteboard drawing area"
+                    style={{ width: '100%', height: 'auto', aspectRatio: `${WHITEBOARD_DRAWABLE_WIDTH}/${WHITEBOARD_DRAWABLE_HEIGHT}`, display: 'block', touchAction: 'none' }}
                   />
-                ) : (
-                  <div
-                    className="flex-1 w-full flex bg-muted/30 rounded-md overflow-auto relative"
-                    ref={scrollContainerRef}
-                  >
-                    <canvas
-                      ref={canvasRef}
-                      width={WHITEBOARD_DRAWABLE_WIDTH}
-                      height={WHITEBOARD_DRAWABLE_HEIGHT}
-                      className="border border-border shadow-inner bg-transparent cursor-crosshair"
-                      aria-label="Whiteboard drawing area"
-                      style={{ width: '100%', height: 'auto', aspectRatio: `${WHITEBOARD_DRAWABLE_WIDTH}/${WHITEBOARD_DRAWABLE_HEIGHT}`, display: 'block', touchAction: 'none' }}
-                    />
-                  </div>
-                )}
+                </div>
+
 
                 {selectedNote.type === 'note' && (
                   <div className="mt-4">
