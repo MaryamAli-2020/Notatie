@@ -1,3 +1,4 @@
+
 export interface Notebook {
   id: string;
   name: string;
@@ -11,7 +12,8 @@ export interface Note {
   id: string;
   notebookId: string;
   title: string;
-  content: string; // For simplicity, plain text. Could be Markdown or JSON for rich text.
+  content: string; // HTML string for notes, Data URL string for whiteboards
+  type: 'note' | 'whiteboard'; // Type of the entry
   createdAt: string; // ISO string date
   updatedAt: string; // ISO string date
   isBookmarked: boolean;

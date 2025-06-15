@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import bearIcon from '@/app/bear.png';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   SidebarProvider,
   Sidebar,
@@ -20,7 +20,6 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-// Textarea is replaced by contentEditable div
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -29,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
   Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type, // ImageIcon to avoid conflict
-  Heading1, Heading2, Heading3, Highlighter // New icons
+  Heading1, Heading2, Heading3, Highlighter, Pencil // Added Pencil
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -39,11 +38,14 @@ import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } f
 
 const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
 const colorOptions = ['#352208', '#E1BB80', '#7B6B43', '#685634', '#806443', '#ffd93d', '#65B0E2', '#6C3F26'];
-const textColors = ['#000000', '#FF0000', '#0000FF', '#008000', '#FFA500', '#800080']; // Black, Red, Blue, Green, Orange, Purple
-const HIGHLIGHT_COLOR = '#D8BFAA';
+const textColors = ['#000000', '#FF0000', '#0000FF', '#008000', '#FFA500', '#800080']; 
+const HIGHLIGHT_COLOR = 'yellow'; // Simpler highlight color
 
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
 const LOCAL_STORAGE_NOTES_KEY = 'Notatie-notes';
+
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -52,12 +54,13 @@ export default function QuillFlowApp() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   
   const [currentNoteTitle, setCurrentNoteTitle] = useState('');
-  const [currentNoteContent, setCurrentNoteContent] = useState(''); // Will store HTML
+  const [currentNoteContent, setCurrentNoteContent] = useState(''); 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
 
   const [newNotebookName, setNewNotebookName] = useState('');
   const [newNotebookColor, setNewNotebookColor] = useState(colorOptions[0]);
-  const [newNotebookIcon, setNewNotebookIcon] = useState(iconOptions[0]);  const [isNewNotebookDialogOpen, setIsNewNotebookDialogOpen] = useState(false);
+  const [newNotebookIcon, setNewNotebookIcon] = useState(iconOptions[0]);  
+  const [isNewNotebookDialogOpen, setIsNewNotebookDialogOpen] = useState(false);
   const [notebookToDelete, setNotebookToDelete] = useState<Notebook | null>(null);
 
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -66,6 +69,12 @@ export default function QuillFlowApp() {
   const { toast } = useToast();
   const editorRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+
+  // Whiteboard refs
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingContextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const isDrawingRef = useRef(false);
+  const lastPositionRef = useRef<{ x: number; y: number } | null>(null);
 
 
   useEffect(() => {
@@ -139,8 +148,8 @@ export default function QuillFlowApp() {
   useEffect(() => {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
-      setCurrentNoteContent(selectedNote.content); // Content is HTML
-      if (editorRef.current) {
+      setCurrentNoteContent(selectedNote.content); 
+      if (selectedNote.type === 'note' && editorRef.current) {
         editorRef.current.innerHTML = selectedNote.content;
       }
       setAiSummary(null); 
@@ -153,6 +162,35 @@ export default function QuillFlowApp() {
       setAiSummary(null);
     }
   }, [selectedNote]);
+
+  // Canvas setup and loading
+  useEffect(() => {
+    if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      drawingContextRef.current = ctx;
+
+      if (ctx) {
+        // Set default drawing styles
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Clear canvas before drawing new content
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (selectedNote.content) {
+          const img = new window.Image();
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0);
+          };
+          img.src = selectedNote.content; // This is a Data URL
+        }
+      }
+    }
+  }, [selectedNote, canvasRef]);
+
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
     setCurrentNoteContent(event.currentTarget.innerHTML);
@@ -178,42 +216,53 @@ export default function QuillFlowApp() {
     toast({ title: "Success", description: `Notebook "${newNotebook.name}" created.` });
   };
 
-  const handleAddNote = () => {
+  const createNewItem = (type: 'note' | 'whiteboard') => {
     if (!selectedNotebookId) {
       toast({ title: "Error", description: "Please select a notebook first.", variant: "destructive" });
       return;
     }
-    const newNote: Note = {
-      id: `note-${Date.now()}`,
+    const newItem: Note = {
+      id: `item-${Date.now()}`,
       notebookId: selectedNotebookId,
-      title: 'Untitled Note',
-      content: '', // Empty HTML content
+      title: type === 'note' ? 'Untitled Note' : 'Untitled Whiteboard',
+      content: '', 
+      type: type,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isBookmarked: false,
     };
-    setNotes(prev => [...prev, newNote]);
-    setSelectedNoteId(newNote.id);
-    toast({ title: "Success", description: "New note created." });
+    setNotes(prev => [...prev, newItem]);
+    setSelectedNoteId(newItem.id);
+    toast({ title: "Success", description: `New ${type} created.` });
   };
+
+  const handleAddNote = () => createNewItem('note');
+  const handleAddWhiteboard = () => createNewItem('whiteboard');
+
 
   const handleSaveNote = () => {
     if (!selectedNote) return;
-    // Content is already updated via handleContentChange
+
+    let contentToSave = currentNoteContent;
+    if (selectedNote.type === 'whiteboard' && canvasRef.current) {
+      contentToSave = canvasRef.current.toDataURL('image/png');
+    }
+    
     setNotes(prev => prev.map(note => 
       note.id === selectedNote.id 
-      ? { ...note, title: currentNoteTitle, content: currentNoteContent, updatedAt: new Date().toISOString() } 
+      ? { ...note, title: currentNoteTitle, content: contentToSave, updatedAt: new Date().toISOString() } 
       : note
     ));
     setIsEditingTitle(false);
-    toast({ title: "Note Saved", description: `"${currentNoteTitle}" has been saved.` });
+    toast({ title: `${selectedNote.type === 'note' ? 'Note' : 'Whiteboard'} Saved`, description: `"${currentNoteTitle}" has been saved.` });
   };
 
   const handleDeleteNote = () => {
     if (!selectedNote) return;
-    const noteTitle = selectedNote.title;
+    const itemTitle = selectedNote.title;
+    const itemType = selectedNote.type;
     setNotes(prev => prev.filter(note => note.id !== selectedNote.id));
-    toast({ title: "Note Deleted", description: `"${noteTitle}" has been deleted.` });
+    toast({ title: `${itemType === 'note' ? 'Note' : 'Whiteboard'} Deleted`, description: `"${itemTitle}" has been deleted.` });
   };
 
   const handleToggleBookmark = (noteId: string) => {
@@ -232,7 +281,7 @@ export default function QuillFlowApp() {
   };
 
   const handleSummarizeNote = async () => {
-    if (!selectedNote) return;
+    if (!selectedNote || selectedNote.type === 'whiteboard') return;
     
     const textContent = editorRef.current?.innerText || '';
     if (!textContent.trim()) {
@@ -257,16 +306,14 @@ export default function QuillFlowApp() {
   };
   
   const execFormatCommand = (command: string, value?: string) => {
-    if (editorRef.current) {
-      editorRef.current.focus();
-      document.execCommand(command, false, value);
-      // After execCommand, the contentEditable div's innerHTML might have changed
-      // So, we re-sync our React state with the DOM's current state.
-      setCurrentNoteContent(editorRef.current.innerHTML);
-    }
+    if (selectedNote?.type !== 'note' || !editorRef.current) return;
+    editorRef.current.focus();
+    document.execCommand(command, false, value);
+    setCurrentNoteContent(editorRef.current.innerHTML);
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (selectedNote?.type !== 'note') return;
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -276,7 +323,7 @@ export default function QuillFlowApp() {
       };
       reader.readAsDataURL(file);
     }
-    if(imageInputRef.current) imageInputRef.current.value = ""; // Reset file input
+    if(imageInputRef.current) imageInputRef.current.value = ""; 
   };
   
   const notesInSelectedNotebook = useMemo(() => {
@@ -298,31 +345,104 @@ export default function QuillFlowApp() {
 
 
   const handleDeleteNotebook = (notebook: Notebook) => {
-    // First delete all notes in this notebook
     const notesToDelete = notes.filter(note => note.notebookId === notebook.id);
     setNotes(prev => prev.filter(note => note.notebookId !== notebook.id));
-    
-    // Then delete the notebook
     setNotebooks(prev => prev.filter(nb => nb.id !== notebook.id));
-    
-    // Reset selected notebook if we just deleted it
     if (selectedNotebookId === notebook.id) {
       setSelectedNotebookId(null);
     }
-
     setNotebookToDelete(null);
     toast({ 
       title: "Notebook Deleted", 
-      description: `"${notebook.name}" and its ${notesToDelete.length} note${notesToDelete.length === 1 ? '' : 's'} have been deleted.` 
+      description: `"${notebook.name}" and its ${notesToDelete.length} item${notesToDelete.length === 1 ? '' : 's'} have been deleted.` 
     });
   };
+
+  // Whiteboard Drawing Handlers
+  const getEventCoordinates = (event: MouseEvent | TouchEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (event instanceof MouseEvent) {
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    } else if (event.touches && event.touches.length > 0) {
+      return { x: event.touches[0].clientX - rect.left, y: event.touches[0].clientY - rect.top };
+    }
+    return null;
+  };
+
+  const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
+    if (selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
+    event.preventDefault(); // Prevent scrolling on touch
+    const coords = getEventCoordinates(event);
+    if (!coords) return;
+
+    isDrawingRef.current = true;
+    drawingContextRef.current.beginPath();
+    drawingContextRef.current.moveTo(coords.x, coords.y);
+    lastPositionRef.current = coords;
+  }, [selectedNote]);
+
+  const draw = useCallback((event: MouseEvent | TouchEvent) => {
+    if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
+     event.preventDefault();
+    const coords = getEventCoordinates(event);
+    if (!coords || !lastPositionRef.current) return;
+    
+    drawingContextRef.current.lineTo(coords.x, coords.y);
+    drawingContextRef.current.stroke();
+    lastPositionRef.current = coords;
+  }, [selectedNote]);
+
+  const stopDrawing = useCallback(() => {
+    if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
+    isDrawingRef.current = false;
+    if (canvasRef.current) {
+      const imageDataUrl = canvasRef.current.toDataURL('image/png');
+      setCurrentNoteContent(imageDataUrl); // Update content state for potential auto-save or manual save
+      // Optionally, call handleSaveNote here if you want to auto-save on mouse up
+      // handleSaveNote(); 
+    }
+    lastPositionRef.current = null;
+  }, [selectedNote]);
+
+  // Attach/detach drawing listeners
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || selectedNote?.type !== 'whiteboard') return;
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseleave', stopDrawing); // Stop if mouse leaves canvas
+
+    canvas.addEventListener('touchstart', startDrawing, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDrawing);
+    canvas.addEventListener('touchcancel', stopDrawing);
+
+
+    return () => {
+      canvas.removeEventListener('mousedown', startDrawing);
+      canvas.removeEventListener('mousemove', draw);
+      canvas.removeEventListener('mouseup', stopDrawing);
+      canvas.removeEventListener('mouseleave', stopDrawing);
+
+      canvas.removeEventListener('touchstart', startDrawing);
+      canvas.removeEventListener('touchmove', draw);
+      canvas.removeEventListener('touchend', stopDrawing);
+      canvas.removeEventListener('touchcancel', stopDrawing);
+    };
+  }, [selectedNote, startDrawing, draw, stopDrawing]);
+
 
   return (
     <SidebarProvider defaultOpen>
       <Sidebar variant="sidebar" collapsible="icon" className="border-r shadow-md">
         <SidebarHeader className="p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">               <Image src={bearIcon} alt="Bear Icon" className="h-7 w-7" width={28} height={28} />
+            <div className="flex items-center gap-2">               
+              <Image src={bearIcon} alt="Bear Icon" className="h-7 w-7" width={28} height={28} />
               <h1 className="text-2xl font-headline text-foreground group-data-[collapsible=icon]:hidden">Notatie</h1>
             </div>
             <SidebarTrigger />
@@ -335,7 +455,8 @@ export default function QuillFlowApp() {
         <SidebarContent className="p-2">
           <SidebarGroup className="group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel className="flex items-center justify-between">
-              Notebooks              <Button variant="sidebarAction" size="icon" className="h-7 w-7" onClick={() => setIsNewNotebookDialogOpen(true)}>
+              Notebooks              
+              <Button variant="sidebarAction" size="icon" className="h-7 w-7" onClick={() => setIsNewNotebookDialogOpen(true)}>
                 <PlusCircle className="h-4 w-4" />
               </Button>
               <Dialog open={isNewNotebookDialogOpen} onOpenChange={setIsNewNotebookDialogOpen}>
@@ -376,7 +497,8 @@ export default function QuillFlowApp() {
             </SidebarGroupLabel>
             <SidebarMenu>
               {notebooks.map(nb => (
-                <SidebarMenuItem key={nb.id}>                  <div className="flex items-center w-full gap-1">
+                <SidebarMenuItem key={nb.id}>                  
+                  <div className="flex items-center w-full gap-1">
                     <SidebarMenuButton 
                       onClick={() => setSelectedNotebookId(nb.id)}
                       isActive={selectedNotebookId === nb.id}
@@ -385,10 +507,11 @@ export default function QuillFlowApp() {
                     >
                       <NotebookIcon name={nb.icon} style={{ color: nb.color }} className="h-5 w-5" />
                       <span className="group-data-[collapsible=icon]:hidden">{nb.name}</span>
-                    </SidebarMenuButton>                    <Button 
+                    </SidebarMenuButton>                    
+                    <Button 
                       variant="sidebarAction" 
                       size="icon" 
-                      className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                      className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
                       onClick={(e) => {
                         e.stopPropagation();
                         setNotebookToDelete(nb);
@@ -406,9 +529,10 @@ export default function QuillFlowApp() {
           </SidebarGroup>
           
           <SidebarGroup className="mt-4 group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel>Notes</SidebarGroupLabel>
+            <SidebarGroupLabel>Items</SidebarGroupLabel>
              <SidebarMenu>
                 {selectedNotebookId && (
+                  <>
                   <SidebarMenuItem>
                     <Button 
                       variant="sidebarAction" 
@@ -419,38 +543,49 @@ export default function QuillFlowApp() {
                       <PlusCircle className="h-4 w-4"/> New Note
                     </Button>
                   </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <Button 
+                      variant="sidebarAction" 
+                      size="sm" 
+                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity" 
+                      onClick={handleAddWhiteboard}
+                    >
+                      <Pencil className="h-4 w-4"/> New Whiteboard
+                    </Button>
+                  </SidebarMenuItem>
+                  </>
                 )}
-                {notesInSelectedNotebook.map(note => (
-                  <SidebarMenuItem key={note.id}>
+                {notesInSelectedNotebook.map(item => (
+                  <SidebarMenuItem key={item.id}>
                     <div className="flex items-center w-full gap-1">
                       <SidebarMenuButton 
-                        onClick={() => setSelectedNoteId(note.id)} 
-                        isActive={selectedNoteId === note.id}
+                        onClick={() => setSelectedNoteId(item.id)} 
+                        isActive={selectedNoteId === item.id}
                         className="justify-start text-sm flex-grow"
-                        tooltip={note.title}
+                        tooltip={item.title}
                       >
-                        <FileText className="h-4 w-4 opacity-70" />
-                        <span className="truncate group-data-[collapsible=icon]:hidden">{note.title}</span>
+                        {item.type === 'note' ? <FileText className="h-4 w-4 opacity-70" /> : <Pencil className="h-4 w-4 opacity-70" />}
+                        <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
                       </SidebarMenuButton>
                       <Button 
                         variant="sidebarAction" 
                         size="icon" 
-                        className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
+                        className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleToggleBookmark(note.id);
+                          handleToggleBookmark(item.id);
                         }}
                       >
-                        <BookMarked className={`h-4 w-4 ${note.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
+                        <BookMarked className={`h-4 w-4 ${item.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
                       </Button>
                     </div>
                   </SidebarMenuItem>
                 ))}
                 {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
-                    <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No notes in this notebook yet.</p>
+                    <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No items in this notebook yet.</p>
                 )}
                 {!selectedNotebookId && notebooks.length > 0 && (
-                     <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see notes.</p>
+                     <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see items.</p>
                 )}
              </SidebarMenu>
           </SidebarGroup>
@@ -471,7 +606,7 @@ export default function QuillFlowApp() {
                   </SidebarMenuItem>
                 ))}
                 {bookmarkedNotes.length === 0 && (
-                    <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No bookmarked notes.</p>
+                    <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No bookmarked items.</p>
                 )}
              </SidebarMenu>
           </SidebarGroup>
@@ -490,12 +625,12 @@ export default function QuillFlowApp() {
         {selectedNote ? (
           <div className="flex-1 flex flex-col p-4 md:p-6 space-y-4 overflow-y-auto">
             <Card 
-              className="flex-1 flex flex-col shadow-lg rounded-xl overflow-hidden border-4" // Increased border thickness
+              className="flex-1 flex flex-col shadow-lg rounded-xl overflow-hidden border-4" 
               style={{borderColor: activeNotebookColor}}
             >
               <CardHeader 
                 className="p-4 border-b flex flex-row items-center justify-between space-y-0"
-                style={{backgroundColor: activeNotebookColor ? `${activeNotebookColor}33` : 'var(--card)' }} // Apply notebook color with alpha to header
+                style={{backgroundColor: activeNotebookColor ? `${activeNotebookColor}33` : 'var(--card)' }} 
               >
                 <div className="flex items-center gap-2 flex-grow min-w-0">
                   {isEditingTitle ? (
@@ -531,7 +666,7 @@ export default function QuillFlowApp() {
                     size="icon" 
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
                     onClick={handleSaveNote} 
-                    aria-label="Save note"
+                    aria-label="Save item"
                   >
                     <Save className="h-4 w-4 text-green-600" />
                   </Button>
@@ -540,86 +675,105 @@ export default function QuillFlowApp() {
                     size="icon" 
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
                     onClick={handleDeleteNote} 
-                    aria-label="Delete note"
+                    aria-label="Delete item"
                   >
                     <Trash2 className="h-4 w-4 text-red-600" />
                   </Button>
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex-1 flex flex-col">
-                <div className="mb-2 flex flex-wrap gap-0.5 border rounded-md p-1 bg-muted overflow-x-auto">
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => execFormatCommand('bold')}><Bold /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic" onClick={() => execFormatCommand('italic')}><Italic /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline" onClick={() => execFormatCommand('underline')}><Underline /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List" onClick={() => execFormatCommand('insertUnorderedList')}><List /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List" onClick={() => execFormatCommand('insertOrderedList')}><ListOrdered /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 1" onClick={() => execFormatCommand('formatBlock', '<h1>')}><Heading1 className="h-5 w-5" /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 2" onClick={() => execFormatCommand('formatBlock', '<h2>')}><Heading2 className="h-5 w-5" /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 3" onClick={() => execFormatCommand('formatBlock', '<h3>')}><Heading3 className="h-5 w-5" /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Highlight" onClick={() => execFormatCommand('backColor', HIGHLIGHT_COLOR)}><Highlighter className="h-5 w-5"/></Button>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Text Color"><Palette /></Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-2">
-                      <div className="flex gap-1">
-                        {textColors.map(color => (
-                          <Button
-                            key={color}
-                            variant="outline"
-                            size="icon"
-                            className="h-6 w-6 rounded-full"
-                            style={{ backgroundColor: color }}
-                            onClick={() => execFormatCommand('foreColor', color)}
-                            aria-label={`Set text color to ${color}`}
-                          />
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table" onClick={() => execFormatCommand('insertHTML', '<table border="1" style="border-collapse: collapse; width: 100%;"><tbody><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></tbody></table>')}><Table /></Button>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image" onClick={() => imageInputRef.current?.click()}><ImageIcon /></Button>
-                  <label htmlFor="note-image-upload" className="sr-only">Upload image</label>
-                  <input
-                    id="note-image-upload"
-                    type="file"
-                    accept="image/*"
-                    ref={imageInputRef}
-                    onChange={handleImageUpload}
-                    className="hidden"
-                    title="Upload image"
+                {selectedNote.type === 'note' && (
+                  <div className="mb-2 flex flex-wrap gap-0.5 border rounded-md p-1 bg-muted overflow-x-auto">
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => execFormatCommand('bold')}><Bold /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Italic" onClick={() => execFormatCommand('italic')}><Italic /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Underline" onClick={() => execFormatCommand('underline')}><Underline /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bullet List" onClick={() => execFormatCommand('insertUnorderedList')}><List /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Numbered List" onClick={() => execFormatCommand('insertOrderedList')}><ListOrdered /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 1" onClick={() => execFormatCommand('formatBlock', '<h1>')}><Heading1 className="h-5 w-5" /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 2" onClick={() => execFormatCommand('formatBlock', '<h2>')}><Heading2 className="h-5 w-5" /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Heading 3" onClick={() => execFormatCommand('formatBlock', '<h3>')}><Heading3 className="h-5 w-5" /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Highlight" onClick={() => execFormatCommand('backColor', HIGHLIGHT_COLOR)}><Highlighter className="h-5 w-5"/></Button>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-muted-foreground" title="Change Text Color"><Palette /></Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-2">
+                        <div className="flex gap-1">
+                          {textColors.map(color => (
+                            <Button
+                              key={color}
+                              variant="outline"
+                              size="icon"
+                              className="h-6 w-6 rounded-full"
+                              style={{ backgroundColor: color }}
+                              onClick={() => execFormatCommand('foreColor', color)}
+                              aria-label={`Set text color to ${color}`}
+                            />
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Table" onClick={() => execFormatCommand('insertHTML', '<table border="1" style="border-collapse: collapse; width: 100%;"><tbody><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></tbody></table>')}><Table /></Button>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground" title="Insert Image" onClick={() => imageInputRef.current?.click()}><ImageIcon /></Button>
+                    <label htmlFor="note-image-upload" className="sr-only">Upload image</label>
+                    <input
+                      id="note-image-upload"
+                      type="file"
+                      accept="image/*"
+                      ref={imageInputRef}
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      title="Upload image"
+                    />
+                  </div>
+                )}
+
+                {selectedNote.type === 'note' ? (
+                  <div 
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning 
+                    onInput={handleContentChange}
+                    data-placeholder="Start writing your brilliant notes here..."
+                    className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2"
+                    aria-label="Note content"
+                    style={{minHeight: '200px'}} 
                   />
-                </div>
-                <div 
-                  ref={editorRef}
-                  contentEditable
-                  suppressContentEditableWarning // To allow React to manage contentEditable content
-                  onInput={handleContentChange}
-                  data-placeholder="Start writing your brilliant notes here..."
-                  className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2"
-                  aria-label="Note content"
-                  style={{minHeight: '200px'}} // Ensure a minimum height for the editor
-                />
-                 <div className="mt-4">
-                  <Button onClick={handleSummarizeNote} disabled={isSummarizing || !currentNoteContent.trim()} size="sm">
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    {isSummarizing ? 'Summarizing...' : 'AI Summarize'}
-                  </Button>
-                  {aiSummary && (
-                    <Card className="mt-4 bg-primary/20 border-primary/50">
-                      <CardHeader className="py-2 px-3 flex flex-row items-center justify-between">
-                        <CardTitle className="text-lg font-headline">AI Summary</CardTitle>
-                        <Button variant="ghost" size="icon" onClick={() => setAiSummary(null)} className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                          <X className="h-4 w-4" />
-                           <span className="sr-only">Close summary</span>
-                        </Button>
-                      </CardHeader>
-                      <CardContent className="p-3 pt-1">
-                        <p className="text-sm whitespace-pre-wrap">{aiSummary}</p>
-                      </CardContent>
-                    </Card>
-                  )}
-                </div>
+                ) : ( // Whiteboard
+                  <div className="flex-1 w-full flex items-center justify-center bg-muted/30 rounded-md overflow-hidden">
+                    <canvas 
+                      ref={canvasRef} 
+                      width={CANVAS_WIDTH} 
+                      height={CANVAS_HEIGHT}
+                      className="border border-border shadow-inner bg-background cursor-crosshair"
+                      aria-label="Whiteboard drawing area"
+                      style={{touchAction: 'none'}} // Important for touch events
+                    />
+                  </div>
+                )}
+
+                {selectedNote.type === 'note' && (
+                  <div className="mt-4">
+                    <Button onClick={handleSummarizeNote} disabled={isSummarizing || !currentNoteContent.trim()} size="sm">
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      {isSummarizing ? 'Summarizing...' : 'AI Summarize'}
+                    </Button>
+                    {aiSummary && (
+                      <Card className="mt-4 bg-primary/20 border-primary/50">
+                        <CardHeader className="py-2 px-3 flex flex-row items-center justify-between">
+                          <CardTitle className="text-lg font-headline">AI Summary</CardTitle>
+                          <Button variant="ghost" size="icon" onClick={() => setAiSummary(null)} className="h-7 w-7 text-muted-foreground hover:text-foreground">
+                            <X className="h-4 w-4" />
+                            <span className="sr-only">Close summary</span>
+                          </Button>
+                        </CardHeader>
+                        <CardContent className="p-3 pt-1">
+                          <p className="text-sm whitespace-pre-wrap">{aiSummary}</p>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -629,17 +783,21 @@ export default function QuillFlowApp() {
             <h2 className="text-2xl font-headline text-muted-foreground mb-2">
               {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0 ? 'This notebook is empty' : 
                !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook' :
-               notebooks.length === 0 ? 'No notebooks yet' : 'Select a note to view'}
+               notebooks.length === 0 ? 'No notebooks yet' : 'Select an item to view'}
             </h2>
             <p className="text-muted-foreground mb-4">
               {selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0
-                ? 'Create your first note in this notebook using the "New Note" button in the sidebar.' 
-                : !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook from the sidebar to see its notes.'
+                ? 'Create your first note or whiteboard in this notebook using the buttons in the sidebar.' 
+                : !selectedNotebookId && notebooks.length > 0 ? 'Select a notebook from the sidebar to see its items.'
                 : 'Create a new notebook to start your journey with Notatie!'}
             </p>
             {(selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0) && (
-              <Button onClick={handleAddNote}><PlusCircle className="mr-2 h-4 w-4" /> Create New Note</Button>
-            )}            {notebooks.length === 0 && (
+              <div className="flex gap-2">
+                <Button onClick={handleAddNote}><PlusCircle className="mr-2 h-4 w-4" /> Create New Note</Button>
+                <Button onClick={handleAddWhiteboard}><Pencil className="mr-2 h-4 w-4" /> Create New Whiteboard</Button>
+              </div>
+            )}            
+            {notebooks.length === 0 && (
               <div>
                 <Button onClick={() => setIsNewNotebookDialogOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> Create New Notebook</Button>
                 <Dialog open={isNewNotebookDialogOpen} onOpenChange={setIsNewNotebookDialogOpen}>
@@ -690,7 +848,7 @@ export default function QuillFlowApp() {
           <div className="py-2">
             <p>Are you sure you want to delete "{notebookToDelete?.name}"?</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              This will permanently delete this notebook and all {notes.filter(note => note.notebookId === notebookToDelete?.id).length} notes inside it. 
+              This will permanently delete this notebook and all {notes.filter(note => note.notebookId === notebookToDelete?.id).length} items inside it. 
               This action cannot be undone.
             </p>
           </div>
@@ -708,6 +866,3 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-
-
-    
