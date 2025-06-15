@@ -60,6 +60,9 @@ const WHITEBOARD_DRAWABLE_HEIGHT = 800;
 const LIGHT_THEME_BACKGROUND = '#FAF8F4'; // Warm cream
 const DARK_THEME_BACKGROUND = '#17120E'; // Deep chocolate
 
+const AUTOSAVE_DELAY_MS = 2000;
+
+
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -92,6 +95,7 @@ export default function QuillFlowApp() {
   const [drawingTool, setDrawingTool] = useState<'pen' | 'eraser'>('pen');
   const [themeVersion, setThemeVersion] = useState(0);
   const [eraserWidth, setEraserWidth] = useState<number>(DEFAULT_ERASER_WIDTH);
+  const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
 
   useEffect(() => {
@@ -162,6 +166,26 @@ export default function QuillFlowApp() {
     return notes.find(note => note.id === selectedNoteId);
   }, [notes, selectedNoteId]);
 
+
+  useEffect(() => {
+    if (selectedNote) {
+      setCurrentNoteTitle(selectedNote.title);
+      setCurrentNoteContent(selectedNote.content);
+      if (selectedNote.type === 'note' && editorRef.current) {
+        editorRef.current.innerHTML = selectedNote.content;
+      }
+      setAiSummary(null);
+    } else {
+      setCurrentNoteTitle('');
+      setCurrentNoteContent('');
+      if (editorRef.current) {
+        editorRef.current.innerHTML = '';
+      }
+      setAiSummary(null);
+    }
+  }, [selectedNote]);
+
+
   const getEventCoordinates = useCallback((event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
     const canvas = canvasRef.current;
     const scrollContainer = scrollContainerRef.current;
@@ -180,11 +204,9 @@ export default function QuillFlowApp() {
       return null;
     }
 
-    // Calculate scale factors based on attribute vs. client rect dimensions
     const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height; // Keep Y-scaling for full accuracy if canvas height is also responsive
+    const scaleY = canvas.height / rect.height;
 
-    // Adjust coordinates based on canvas position, scroll offset, and scale
     const xOnCanvas = (clientX - rect.left) * scaleX;
     const yOnCanvas = (clientY - rect.top) * scaleY + (scrollContainer.scrollTop * scaleY);
 
@@ -205,26 +227,6 @@ export default function QuillFlowApp() {
     observer.observe(document.documentElement, { attributes: true });
     return () => observer.disconnect();
   }, []);
-
-
-  useEffect(() => {
-    if (selectedNote) {
-      setCurrentNoteTitle(selectedNote.title);
-      setCurrentNoteContent(selectedNote.content);
-      if (selectedNote.type === 'note' && editorRef.current) {
-        editorRef.current.innerHTML = selectedNote.content;
-      }
-      setAiSummary(null);
-    } else {
-      setCurrentNoteTitle('');
-      setCurrentNoteContent('');
-      if (editorRef.current) {
-        editorRef.current.innerHTML = '';
-      }
-      setAiSummary(null);
-    }
-  }, [selectedNote]);
-
 
 // Effect for initializing whiteboard when note is selected
 useEffect(() => {
@@ -250,30 +252,33 @@ useEffect(() => {
     if (selectedNote.content) {
       const img = new window.Image();
       img.onload = () => {
-        if (drawingContextRef.current) {
+        if (drawingContextRef.current) { // Check if context still exists
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = canvas.width;
           tempCanvas.height = canvas.height;
           const tempCtx = tempCanvas.getContext('2d');
           
           if (tempCtx) {
+            // Set GCO before drawing image to temp canvas
             tempCtx.globalCompositeOperation = 'source-over';
             tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
             
+            // Now, correctly paint the background on the main canvas first
             drawingContextRef.current.globalCompositeOperation = 'source-over';
-            drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
-            drawingContextRef.current.fillStyle = backgroundColor;
+            drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height); // Clear again
+            drawingContextRef.current.fillStyle = backgroundColor; // Use current theme's background
             drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
             
+            // Extract content (non-background pixels) from the loaded image (which was on its original background)
             const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
             
             const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
             const contentData = contentImageData.data;
             
-            const lightBgR = 250, lightBgG = 248, lightBgB = 244;
-            const darkBgR = 23, darkBgG = 18, darkBgB = 14;
-            const tolerance = 10;
+            const lightBgR = 250, lightBgG = 248, lightBgB = 244; // From LIGHT_THEME_BACKGROUND
+            const darkBgR = 23, darkBgG = 18, darkBgB = 14;     // From DARK_THEME_BACKGROUND
+            const tolerance = 10; // Tolerance for color matching
 
             for (let i = 0; i < data.length; i += 4) {
               const r = data[i];
@@ -284,78 +289,93 @@ useEffect(() => {
               const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
               const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
               
-              if (!isLightBg && !isDarkBg && a > 0) {
+              if (!isLightBg && !isDarkBg && a > 0) { // If not a background color and visible
                 contentData[i] = r;
                 contentData[i + 1] = g;
                 contentData[i + 2] = b;
                 contentData[i + 3] = a;
-              } else {
-                contentData[i + 3] = 0;
-              }
+              } // Else, it remains transparent in contentImageData (effectively removing old background)
             }
-            drawingContextRef.current.globalCompositeOperation = 'source-over';
+            // Draw the extracted content onto the main canvas (which now has the correct new background)
+            drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure drawing mode
             drawingContextRef.current.putImageData(contentImageData, 0, 0);
           }
         }
       };
       img.onerror = () => {
         console.error("Failed to load whiteboard image content for note selection.");
+         // Fallback: just clear and set background if image fails
+        if (drawingContextRef.current) {
+            drawingContextRef.current.globalCompositeOperation = 'source-over';
+            drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
+            drawingContextRef.current.fillStyle = backgroundColor;
+            drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
+        }
       };
       img.src = selectedNote.content;
     }
   } else {
     drawingContextRef.current = null;
   }
-}, [selectedNote]);
+}, [selectedNote]); // Removed themeVersion, as this is for note selection
 
 // Effect for handling theme changes without affecting content
 useEffect(() => {
-  if (themeVersion === 0) return;
+  if (themeVersion === 0) return; // Skip initial execution
 
   if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
     const canvas = canvasRef.current;
     const ctx = drawingContextRef.current;
 
-    ctx.globalCompositeOperation = 'source-over';
-    const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = currentImageData.data;
+    // 1. Capture current drawn content (excluding the old background)
+    const currentFullImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const currentFullData = currentFullImageData.data;
     
-    const contentImageData = ctx.createImageData(canvas.width, canvas.height);
-    const contentData = contentImageData.data;
+    const contentOnlyImageData = ctx.createImageData(canvas.width, canvas.height);
+    const contentOnlyData = contentOnlyImageData.data;
 
-    const lightBgR = 250, lightBgG = 248, lightBgB = 244;
-    const darkBgR = 23, darkBgG = 18, darkBgB = 14;
-    const tolerance = 15;
-      
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const a = data[i + 3];
-      
-      const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
-      const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
-      
-      if (!isLightBg && !isDarkBg && a > 0) {
-        contentData[i] = r;
-        contentData[i + 1] = g;
-        contentData[i + 2] = b;
-        contentData[i + 3] = a;
-      }
+    const prevThemeIsDark = !document.documentElement.classList.contains('dark'); // If current is dark, previous was light
+    const prevBackgroundColor = prevThemeIsDark ? LIGHT_THEME_BACKGROUND : DARK_THEME_BACKGROUND;
+    
+    let prevBgR = 0, prevBgG = 0, prevBgB = 0;
+    if (prevBackgroundColor === LIGHT_THEME_BACKGROUND) { // #FAF8F4
+        prevBgR = 250; prevBgG = 248; prevBgB = 244;
+    } else { // #17120E
+        prevBgR = 23; prevBgG = 18; prevBgB = 14;
     }
+    const tolerance = 15;
 
+    for (let i = 0; i < currentFullData.length; i += 4) {
+        const r = currentFullData[i];
+        const g = currentFullData[i+1];
+        const b = currentFullData[i+2];
+        const a = currentFullData[i+3];
+
+        const isPrevBg = Math.abs(r - prevBgR) < tolerance &&
+                         Math.abs(g - prevBgG) < tolerance &&
+                         Math.abs(b - prevBgB) < tolerance;
+
+        if (!isPrevBg && a > 0) { // If not previous background and visible
+            contentOnlyData[i] = r;
+            contentOnlyData[i+1] = g;
+            contentOnlyData[i+2] = b;
+            contentOnlyData[i+3] = a;
+        } // Else, it's transparent in contentOnlyImageData
+    }
+    
+    // 2. Apply new theme background
     const currentThemeIsDark = document.documentElement.classList.contains('dark');
     const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
     
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalCompositeOperation = 'source-over'; // Ensure correct drawing mode
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = newBackgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.putImageData(contentImageData, 0, 0);
+    // 3. Redraw content-only image data on new background
+    ctx.putImageData(contentOnlyImageData, 0, 0);
   }
-}, [themeVersion, selectedNote?.id]);
+}, [themeVersion, selectedNote?.id]); // themeVersion and selectedNote ID trigger this
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -405,8 +425,7 @@ useEffect(() => {
   const handleAddNote = () => createNewItem('note');
   const handleAddWhiteboard = () => createNewItem('whiteboard');
 
-
-  const handleSaveNote = () => {
+  const handleSaveNote = useCallback(() => {
     if (!selectedNote) return;
 
     let contentToSave = currentNoteContent;
@@ -424,12 +443,13 @@ useEffect(() => {
         tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.globalCompositeOperation = 'source-over';
+        
+        tempCtx.globalCompositeOperation = 'source-over'; // Ensure drawing mode
         tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
 
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
-         contentToSave = canvas.toDataURL('image/png');
+         contentToSave = canvas.toDataURL('image/png'); // Fallback, less ideal
       }
     }
 
@@ -438,9 +458,47 @@ useEffect(() => {
       ? { ...note, title: currentNoteTitle, content: contentToSave, updatedAt: new Date().toISOString() }
       : note
     ));
-    setIsEditingTitle(false);
+    setIsEditingTitle(false); // Ensure title editing mode is exited
+    // Toast for manual save, could be silenced for autosave if desired
+    // For now, let it show for both
     toast({ title: `${selectedNote.type === 'note' ? 'Note' : 'Whiteboard'} Saved`, description: `"${currentNoteTitle}" has been saved.` });
-  };
+  }, [selectedNote, currentNoteTitle, currentNoteContent, setNotes, toast]);
+
+
+  const performAutosave = useCallback(() => {
+    if (selectedNote) {
+      handleSaveNote();
+    }
+  }, [selectedNote, handleSaveNote]);
+
+  useEffect(() => {
+    if (!selectedNote) {
+      return;
+    }
+
+    if (autosaveTimeoutRef.current) {
+      clearTimeout(autosaveTimeoutRef.current);
+    }
+
+    const isNoteType = selectedNote.type === 'note';
+    // Check if title or content (for notes) has actually changed since last save
+    // This prevents saving on initial load if no interaction happens
+    const titleActuallyChanged = currentNoteTitle !== selectedNote.title;
+    const contentActuallyChanged = isNoteType && currentNoteContent !== selectedNote.content;
+
+    if (titleActuallyChanged || contentActuallyChanged) {
+      autosaveTimeoutRef.current = setTimeout(() => {
+        performAutosave();
+      }, AUTOSAVE_DELAY_MS);
+    }
+
+    return () => {
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+    };
+  }, [currentNoteTitle, currentNoteContent, selectedNote, performAutosave]);
+
 
   const handleDeleteNote = () => {
     if (!selectedNote) return;
@@ -456,14 +514,18 @@ useEffect(() => {
         ? { ...note, isBookmarked: !note.isBookmarked }
         : note
     ));
-    const note = notes.find(n => n.id === noteId);
-    if (note) {
-      toast({
-        title: note.isBookmarked ? "Bookmark Removed" : "Bookmark Added",
-        description: `"${note.title}" has been ${note.isBookmarked ? "removed from" : "added to"} bookmarks.`
-      });
+    const note = notes.find(n => n.id === noteId); // notes here might be stale, better to find from new prev
+    if (note) { // Re-check with potentially updated notes array from previous line
+       const updatedNote = prev.find(n => n.id === noteId);
+       if (updatedNote) {
+        toast({
+            title: updatedNote.isBookmarked ? "Bookmark Added" : "Bookmark Removed", // Logic inverted here
+            description: `"${updatedNote.title}" has been ${updatedNote.isBookmarked ? "added to" : "removed from"} bookmarks.`
+        });
+       }
     }
   };
+
 
   const handleSummarizeNote = async () => {
     if (!selectedNote || selectedNote.type === 'whiteboard') return;
@@ -559,7 +621,7 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out'; // Standard eraser effect
+    ctx.globalCompositeOperation = 'destination-out'; 
     ctx.lineWidth = eraserWidth;
   }
 
@@ -581,13 +643,22 @@ const draw = useCallback((event: MouseEvent | TouchEvent) => {
 }, [selectedNote, getEventCoordinates]);
 
 const stopDrawing = useCallback(() => {
-  if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
+  if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return; // Only if actually drawing
+  
   isDrawingRef.current = false;
   if (drawingContextRef.current) {
     drawingContextRef.current.closePath();
   }
   lastPositionRef.current = null;
-}, [selectedNote]);
+
+  // Trigger autosave for whiteboard content change
+  if (autosaveTimeoutRef.current) {
+    clearTimeout(autosaveTimeoutRef.current);
+  }
+  autosaveTimeoutRef.current = setTimeout(() => {
+    performAutosave();
+  }, AUTOSAVE_DELAY_MS);
+}, [selectedNote, performAutosave]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -718,8 +789,8 @@ const stopDrawing = useCallback(() => {
   <SidebarGroupLabel>Items</SidebarGroupLabel>
   <SidebarMenu>
     {selectedNotebookId && (
-      <div className="flex gap-2 px-2"> {/* Added flex container with gap */}
-        <SidebarMenuItem className="flex-1"> {/* Added flex-1 for equal width */}
+      <div className="flex gap-2 px-2">
+        <SidebarMenuItem className="flex-1"> 
           <Button
             variant="sidebarAction"
             size="sm"
@@ -727,10 +798,10 @@ const stopDrawing = useCallback(() => {
             onClick={handleAddNote}
           >
             <FileText className="h-4 w-4"/> 
-            <span className="group-data-[collapsible=icon]:hidden">New Note</span>
+            <span className="group-data-[collapsible=icon]:hidden">Note</span>
           </Button>
         </SidebarMenuItem>
-        <SidebarMenuItem className="flex-1"> {/* Added flex-1 for equal width */}
+        <SidebarMenuItem className="flex-1">
           <Button
             variant="sidebarAction"
             size="sm"
@@ -738,7 +809,7 @@ const stopDrawing = useCallback(() => {
             onClick={handleAddWhiteboard}
           >
             <Pencil className="h-4 w-4"/> 
-            <span className="group-data-[collapsible=icon]:hidden">New Board</span>
+            <span className="group-data-[collapsible=icon]:hidden">Board</span>
           </Button>
         </SidebarMenuItem>
         </div>
@@ -824,8 +895,13 @@ const stopDrawing = useCallback(() => {
                      <Input
                         value={currentNoteTitle}
                         onChange={(e) => setCurrentNoteTitle(e.target.value)}
-                        onBlur={handleSaveNote}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSaveNote()}
+                        onBlur={() => setIsEditingTitle(false)} // Autosave handles actual save
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                setIsEditingTitle(false); // Autosave handles actual save
+                                (e.target as HTMLInputElement).blur();
+                            }
+                        }}
                         className="text-2xl font-headline h-auto p-0 border-0 focus-visible:ring-0 flex-grow bg-transparent placeholder-muted-foreground"
                         autoFocus
                       />
@@ -853,7 +929,7 @@ const stopDrawing = useCallback(() => {
                     variant="sidebarAction"
                     size="icon"
                     className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity"
-                    onClick={handleSaveNote}
+                    onClick={handleSaveNote} // Manual save still available
                     aria-label="Save item"
                   >
                     <Save className="h-4 w-4 text-green-600" />
@@ -1134,4 +1210,3 @@ const stopDrawing = useCallback(() => {
     </SidebarProvider>
   );
 }
-
