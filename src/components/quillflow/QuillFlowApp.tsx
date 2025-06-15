@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
   Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type,
-  Heading1, Heading2, Heading3, Highlighter, Pencil, Eraser // Added Eraser
+  Heading1, Heading2, Heading3, Highlighter, Pencil, Eraser
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -52,6 +52,10 @@ const LOCAL_STORAGE_NOTES_KEY = 'Notatie-notes';
 
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
+
+// Theme background colors from globals.css
+const LIGHT_THEME_BACKGROUND = '#FAF8F4'; // hsl(35 25% 96%)
+const DARK_THEME_BACKGROUND = '#17120E';  // hsl(25 35% 8%)
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -95,7 +99,6 @@ export default function QuillFlowApp() {
           setNotebooks([]); 
         }
       } else {
-        // Initialize with empty array if nothing in local storage
         setNotebooks([]); 
       }
 
@@ -104,12 +107,10 @@ export default function QuillFlowApp() {
         try {
           setNotes(JSON.parse(rawNotes));
         } catch { 
-          // Handle potential parsing errors, e.g., corrupted data
           setNotes([]); 
         }
       } else {
-         // Initialize with empty array if nothing in local storage
-        setNotes([]);
+         setNotes([]);
       }
     }
   }, []); 
@@ -128,12 +129,10 @@ export default function QuillFlowApp() {
   
   useEffect(() => {
     if (notebooks.length > 0) {
-      // If there's no selected notebook or the selected one doesn't exist, select the first one
       if (!selectedNotebookId || !notebooks.find(nb => nb.id === selectedNotebookId)) {
         setSelectedNotebookId(notebooks[0].id);
       }
     } else if (notebooks.length === 0 && selectedNotebookId) {
-      // If all notebooks are deleted, clear selectedNotebookId
       setSelectedNotebookId(null); 
     }
   }, [notebooks, selectedNotebookId]);
@@ -142,16 +141,13 @@ export default function QuillFlowApp() {
     if (selectedNotebookId) {
       const notesInCurrentNotebook = notes.filter(note => note.notebookId === selectedNotebookId);
       if (notesInCurrentNotebook.length > 0) {
-        // If no note is selected or selected note is not in current notebook, select the first one
         if (!selectedNoteId || !notesInCurrentNotebook.find(note => note.id === selectedNoteId)) {
           setSelectedNoteId(notesInCurrentNotebook[0].id);
         }
       } else {
-        // No notes in this notebook, clear selectedNoteId
         setSelectedNoteId(null); 
       }
     } else {
-      // No notebook selected, clear selectedNoteId
       setSelectedNoteId(null); 
     }
   }, [selectedNotebookId, notes, selectedNoteId]);
@@ -161,17 +157,15 @@ export default function QuillFlowApp() {
     return notes.find(note => note.id === selectedNoteId);
   }, [notes, selectedNoteId]);
 
-  // Effect to update current note details when selectedNote changes
   useEffect(() => {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
-      setCurrentNoteContent(selectedNote.content); // For notes, this is HTML; for whiteboards, a Data URL
+      setCurrentNoteContent(selectedNote.content);
       if (selectedNote.type === 'note' && editorRef.current) {
         editorRef.current.innerHTML = selectedNote.content;
       }
-      setAiSummary(null); // Reset AI summary when note changes
+      setAiSummary(null);
     } else {
-      // No note selected, clear fields
       setCurrentNoteTitle('');
       setCurrentNoteContent('');
       if (editorRef.current) {
@@ -181,7 +175,6 @@ export default function QuillFlowApp() {
     }
   }, [selectedNote]);
 
-  // Canvas setup and loading
   useEffect(() => {
     if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
       const canvas = canvasRef.current;
@@ -189,35 +182,31 @@ export default function QuillFlowApp() {
       drawingContextRef.current = ctx;
 
       if (ctx) {
-        // Set default drawing styles initially
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
-        // Clear canvas before drawing new content
-        // Important: fill with background color if not transparent
-        const currentTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-        ctx.fillStyle = currentTheme === 'dark' ? '#17120E' : '#FAF8F4'; // Match CSS --background
+        const currentThemeIsDark = document.documentElement.classList.contains('dark');
+        ctx.fillStyle = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        if (selectedNote.content) { // content is a Data URL
+        if (selectedNote.content) { 
           const img = new window.Image();
           img.onload = () => {
             ctx.drawImage(img, 0, 0);
           };
           img.onerror = () => {
-            // console.error("Error loading image to canvas");
-            // Fallback: ensure canvas is cleared to background color if image load fails
-            ctx.fillStyle = currentTheme === 'dark' ? '#17120E' : '#FAF8F4';
+            // console.error("Error loading image to canvas, canvas cleared to background.");
+            // Ensure background is still there if image fails
+            ctx.fillStyle = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
           }
           img.src = selectedNote.content;
         }
-        // Reset tool to pen when a whiteboard is loaded
         setDrawingTool('pen');
         setPenColor(DEFAULT_PEN_COLOR);
       }
     }
-  }, [selectedNote, canvasRef]);
+  }, [selectedNote, canvasRef]); // No dependency on penColor or drawingTool here, handled by their setters
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -238,10 +227,8 @@ export default function QuillFlowApp() {
       updatedAt: new Date().toISOString(),
     };
     setNotebooks(prev => [...prev, newNotebook]);
-    setSelectedNotebookId(newNotebook.id); // Select the new notebook
+    setSelectedNotebookId(newNotebook.id);
     setNewNotebookName('');
-    // setNewNotebookColor(notebookColorOptions[0]); // Reset color if needed
-    // setNewNotebookIcon(iconOptions[0]); // Reset icon if needed
     setIsNewNotebookDialogOpen(false);
     toast({ title: "Success", description: `Notebook "${newNotebook.name}" created.` });
   };
@@ -255,14 +242,14 @@ export default function QuillFlowApp() {
       id: `item-${Date.now()}`,
       notebookId: selectedNotebookId,
       title: type === 'note' ? 'Untitled Note' : 'Untitled Whiteboard',
-      content: '', // Initial content is empty
+      content: '', 
       type: type,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isBookmarked: false,
     };
     setNotes(prev => [...prev, newItem]);
-    setSelectedNoteId(newItem.id); // Select the new item
+    setSelectedNoteId(newItem.id);
     toast({ title: "Success", description: `New ${type} created.` });
   };
 
@@ -275,26 +262,20 @@ export default function QuillFlowApp() {
 
     let contentToSave = currentNoteContent;
     if (selectedNote.type === 'whiteboard' && canvasRef.current) {
-      // Ensure the canvas background is drawn before saving if it's meant to be opaque
       const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-          // Create a temporary canvas to draw the current content over an opaque background
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = canvas.width;
-          tempCanvas.height = canvas.height;
-          const tempCtx = tempCanvas.getContext('2d');
-          if (tempCtx) {
-              const currentTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-              tempCtx.fillStyle = currentTheme === 'dark' ? '#17120E' : '#FAF8F4'; // Match CSS --background
-              tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-              tempCtx.drawImage(canvas, 0, 0);
-              contentToSave = tempCanvas.toDataURL('image/png');
-          } else {
-             contentToSave = canvas.toDataURL('image/png'); // fallback
-          }
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = canvas.width;
+      tempCanvas.height = canvas.height;
+      const tempCtx = tempCanvas.getContext('2d');
+
+      if (tempCtx) {
+        const currentThemeIsDark = document.documentElement.classList.contains('dark');
+        tempCtx.fillStyle = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(canvas, 0, 0);
+        contentToSave = tempCanvas.toDataURL('image/png');
       } else {
-          contentToSave = canvas.toDataURL('image/png'); // fallback
+         contentToSave = canvas.toDataURL('image/png'); // Fallback, might not have desired background
       }
     }
     
@@ -312,7 +293,6 @@ export default function QuillFlowApp() {
     const itemTitle = selectedNote.title;
     const itemType = selectedNote.type;
     setNotes(prev => prev.filter(note => note.id !== selectedNote.id));
-    // Potentially select next/prev note or clear selection
     toast({ title: `${itemType === 'note' ? 'Note' : 'Whiteboard'} Deleted`, description: `"${itemTitle}" has been deleted.` });
   };
 
@@ -332,10 +312,9 @@ export default function QuillFlowApp() {
   };
 
   const handleSummarizeNote = async () => {
-    if (!selectedNote || selectedNote.type === 'whiteboard') return; // Cannot summarize whiteboards
+    if (!selectedNote || selectedNote.type === 'whiteboard') return;
     
-    // Extract text from contentEditable div
-    const textContent = editorRef.current?.innerText || ''; // Use innerText to get raw text
+    const textContent = editorRef.current?.innerText || '';
     if (!textContent.trim()) {
         toast({ title: "Error", description: "No content to summarize.", variant: "destructive" });
         return;
@@ -359,24 +338,22 @@ export default function QuillFlowApp() {
   
   const execFormatCommand = (command: string, value?: string) => {
     if (selectedNote?.type !== 'note' || !editorRef.current) return;
-    editorRef.current.focus(); // Ensure editor has focus
+    editorRef.current.focus();
     document.execCommand(command, false, value);
-    setCurrentNoteContent(editorRef.current.innerHTML); // Update state after command
+    setCurrentNoteContent(editorRef.current.innerHTML);
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (selectedNote?.type !== 'note') return; // Only for notes
+    if (selectedNote?.type !== 'note') return;
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const dataUrl = e.target?.result as string;
-        // Insert image into contentEditable div
         execFormatCommand('insertHTML', `<img src="${dataUrl}" alt="${file.name}" style="max-width: 100%; height: auto; border-radius: 0.25rem; margin: 0.5rem 0;" data-ai-hint="uploaded image" />`);
       };
       reader.readAsDataURL(file);
     }
-    // Reset file input to allow uploading the same file again
     if(imageInputRef.current) imageInputRef.current.value = ""; 
   };
   
@@ -394,32 +371,26 @@ export default function QuillFlowApp() {
       const notebook = notebooks.find(nb => nb.id === selectedNote.notebookId);
       return notebook?.color;
     }
-    return 'var(--border)'; // Default border color
+    return 'var(--border)';
   }, [selectedNote, notebooks]);
 
 
   const handleDeleteNotebook = (notebook: Notebook) => {
-    // Gather notes to be deleted for the toast message
     const notesToDelete = notes.filter(note => note.notebookId === notebook.id);
     
-    // Filter out notes belonging to the deleted notebook
     setNotes(prev => prev.filter(note => note.notebookId !== notebook.id));
-    // Filter out the notebook itself
     setNotebooks(prev => prev.filter(nb => nb.id !== notebook.id));
 
-    // If the deleted notebook was selected, clear the selection
     if (selectedNotebookId === notebook.id) {
       setSelectedNotebookId(null);
-      // setSelectedNoteId(null); // Also clear selected note
     }
-    setNotebookToDelete(null); // Close confirmation dialog
+    setNotebookToDelete(null);
     toast({ 
       title: "Notebook Deleted", 
       description: `"${notebook.name}" and its ${notesToDelete.length} item${notesToDelete.length === 1 ? '' : 's'} have been deleted.` 
     });
   };
 
-  // Whiteboard Drawing Handlers
   const getEventCoordinates = (event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -432,7 +403,7 @@ export default function QuillFlowApp() {
       clientX = event.touches[0].clientX;
       clientY = event.touches[0].clientY;
     } else {
-      return null; // Should not happen if event types are correct
+      return null;
     }
     return { x: clientX - rect.left, y: clientY - rect.top };
   };
@@ -450,13 +421,12 @@ export default function QuillFlowApp() {
     ctx.moveTo(coords.x, coords.y);
     lastPositionRef.current = coords;
 
-    // Apply current tool settings
     if (drawingTool === 'pen') {
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = penColor;
       ctx.lineWidth = DEFAULT_PEN_WIDTH;
     } else if (drawingTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out'; // Erases to transparent
+      ctx.globalCompositeOperation = 'destination-out';
       ctx.lineWidth = ERASER_WIDTH;
     }
   }, [selectedNote, penColor, drawingTool]);
@@ -465,7 +435,7 @@ export default function QuillFlowApp() {
     if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
      event.preventDefault();
     const coords = getEventCoordinates(event);
-    if (!coords || !lastPositionRef.current) return; // Ensure coords and lastPosition are valid
+    if (!coords || !lastPositionRef.current) return;
     
     const ctx = drawingContextRef.current;
     ctx.lineTo(coords.x, coords.y);
@@ -477,29 +447,24 @@ export default function QuillFlowApp() {
     if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
     isDrawingRef.current = false;
     if (drawingContextRef.current) {
-      drawingContextRef.current.closePath(); // Close path for the current stroke
+      drawingContextRef.current.closePath();
     }
     if (canvasRef.current) {
-      const imageDataUrl = canvasRef.current.toDataURL('image/png');
-      setCurrentNoteContent(imageDataUrl); // Update content state for potential auto-save or manual save
-      // Optionally, call handleSaveNote here if you want to auto-save on mouse up
-      // handleSaveNote(); 
+      const imageDataUrl = canvasRef.current.toDataURL('image/png'); // This will have transparent background for erased parts
+      setCurrentNoteContent(imageDataUrl); 
     }
     lastPositionRef.current = null;
   }, [selectedNote]);
 
-  // Attach/detach drawing listeners
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || selectedNote?.type !== 'whiteboard') return;
 
-    // Mouse events
     canvas.addEventListener('mousedown', startDrawing);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', stopDrawing);
-    canvas.addEventListener('mouseleave', stopDrawing); // Stop if mouse leaves canvas
+    canvas.addEventListener('mouseleave', stopDrawing);
 
-    // Touch events
     canvas.addEventListener('touchstart', startDrawing, { passive: false });
     canvas.addEventListener('touchmove', draw, { passive: false });
     canvas.addEventListener('touchend', stopDrawing);
@@ -597,7 +562,7 @@ export default function QuillFlowApp() {
                       size="icon" 
                       className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
                       onClick={(e) => {
-                        e.stopPropagation(); // Prevent selecting notebook
+                        e.stopPropagation(); 
                         setNotebookToDelete(nb);
                       }}
                     >
@@ -699,7 +664,6 @@ export default function QuillFlowApp() {
 
         <SidebarFooter className="p-4 border-t flex items-center justify-between group-data-[collapsible=icon]:justify-center">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-            {/* Could add user avatar or settings icon here later */}
           </div>
           <ThemeSwitcher />
         </SidebarFooter>
@@ -714,15 +678,15 @@ export default function QuillFlowApp() {
             >
               <CardHeader 
                 className="p-4 border-b flex flex-row items-center justify-between space-y-0"
-                style={{backgroundColor: activeNotebookColor ? `${activeNotebookColor}33` : 'var(--card)' }} // Apply notebook color with opacity
+                style={{backgroundColor: activeNotebookColor ? `${activeNotebookColor}33` : 'var(--card)' }}
               >
                 <div className="flex items-center gap-2 flex-grow min-w-0">
                   {isEditingTitle ? (
                      <Input 
                         value={currentNoteTitle} 
                         onChange={(e) => setCurrentNoteTitle(e.target.value)} 
-                        onBlur={handleSaveNote} // Save on blur
-                        onKeyDown={(e) => e.key === 'Enter' && handleSaveNote()} // Save on Enter
+                        onBlur={handleSaveNote}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveNote()}
                         className="text-2xl font-headline h-auto p-0 border-0 focus-visible:ring-0 flex-grow bg-transparent placeholder-muted-foreground"
                         autoFocus
                       />
@@ -767,7 +731,6 @@ export default function QuillFlowApp() {
                 </div>
               </CardHeader>
               <CardContent className="p-4 flex-1 flex flex-col">
-                {/* Rich Text Editor Toolbar - Only for 'note' type */}
                 {selectedNote.type === 'note' && (
                   <div className="mb-2 flex flex-wrap gap-0.5 border rounded-md p-1 bg-muted overflow-x-auto">
                     <Button variant="ghost" size="sm" className="text-muted-foreground" title="Bold" onClick={() => execFormatCommand('bold')}><Bold /></Button>
@@ -809,12 +772,11 @@ export default function QuillFlowApp() {
                       ref={imageInputRef}
                       onChange={handleImageUpload}
                       className="hidden"
-                      aria-label="Upload image for note" // More specific aria-label
+                      aria-label="Upload image for note"
                     />
                   </div>
                 )}
 
-                 {/* Whiteboard Toolbar - Only for 'whiteboard' type */}
                 {selectedNote.type === 'whiteboard' && (
                   <div className="mb-2 flex flex-wrap items-center gap-1 border rounded-md p-1 bg-muted overflow-x-auto">
                     <Button 
@@ -858,20 +820,18 @@ export default function QuillFlowApp() {
                   </div>
                 )}
 
-
-                {/* Content Area: Editor or Whiteboard */}
                 {selectedNote.type === 'note' ? (
                   <div 
                     ref={editorRef}
                     contentEditable
-                    suppressContentEditableWarning // Suppress warning for contentEditable
+                    suppressContentEditableWarning
                     onInput={handleContentChange}
                     data-placeholder="Start writing your brilliant notes here..."
-                    className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2" // Added prose styling
+                    className="flex-1 w-full text-base p-2 rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring prose dark:prose-invert max-w-none prose-img:rounded-md prose-img:my-2"
                     aria-label="Note content"
                     style={{minHeight: '200px'}} 
                   />
-                ) : ( // Whiteboard
+                ) : ( 
                   <div className="flex-1 w-full flex items-center justify-center bg-muted/30 rounded-md overflow-hidden relative">
                     <canvas 
                       ref={canvasRef} 
@@ -879,12 +839,11 @@ export default function QuillFlowApp() {
                       height={CANVAS_HEIGHT}
                       className="border border-border shadow-inner bg-background cursor-crosshair"
                       aria-label="Whiteboard drawing area"
-                      style={{touchAction: 'none'}} // Important for touch events on some browsers
+                      style={{touchAction: 'none'}} 
                     />
                   </div>
                 )}
 
-                {/* AI Summary - Only for 'note' type */}
                 {selectedNote.type === 'note' && (
                   <div className="mt-4">
                     <Button onClick={handleSummarizeNote} disabled={isSummarizing || !currentNoteContent.trim()} size="sm">
@@ -973,7 +932,6 @@ export default function QuillFlowApp() {
         )}
       </SidebarInset>
 
-      {/* Delete Notebook Confirmation Dialog */}
       <Dialog open={notebookToDelete !== null} onOpenChange={(open) => !open && setNotebookToDelete(null)}>
         <DialogContent>
           <DialogHeader>
@@ -1000,6 +958,3 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-
-
-    
