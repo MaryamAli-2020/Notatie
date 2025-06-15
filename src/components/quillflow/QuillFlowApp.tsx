@@ -57,8 +57,8 @@ const WHITEBOARD_DRAWABLE_WIDTH = 1200;
 const WHITEBOARD_DRAWABLE_HEIGHT = 800;
 
 
-const LIGHT_THEME_BACKGROUND = '#FAF8F4';
-const DARK_THEME_BACKGROUND = '#17120E';
+const LIGHT_THEME_BACKGROUND = '#FAF8F4'; // Warm cream
+const DARK_THEME_BACKGROUND = '#17120E'; // Deep chocolate
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -180,11 +180,13 @@ export default function QuillFlowApp() {
       return null;
     }
 
+    // Calculate scale factors based on attribute vs. client rect dimensions
     const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+    const scaleY = canvas.height / rect.height; // Keep Y-scaling for full accuracy if canvas height is also responsive
 
+    // Adjust coordinates based on canvas position, scroll offset, and scale
     const xOnCanvas = (clientX - rect.left) * scaleX;
-    const yOnCanvas = ((clientY - rect.top) * scaleY) + (scrollContainer.scrollTop * scaleY) ;
+    const yOnCanvas = (clientY - rect.top) * scaleY + (scrollContainer.scrollTop * scaleY);
 
 
     return { x: xOnCanvas, y: yOnCanvas };
@@ -422,6 +424,7 @@ useEffect(() => {
         tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.globalCompositeOperation = 'source-over';
         tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
 
         contentToSave = tempCanvas.toDataURL('image/png');
@@ -556,7 +559,7 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalCompositeOperation = 'destination-out'; // Standard eraser effect
     ctx.lineWidth = eraserWidth;
   }
 
@@ -712,66 +715,68 @@ const stopDrawing = useCallback(() => {
           </SidebarGroup>
 
           <SidebarGroup className="mt-4 group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel>Items</SidebarGroupLabel>
-             <SidebarMenu>
-                {selectedNotebookId && (
-                  <>
-                  <SidebarMenuItem>
-                    <Button
-                      variant="sidebarAction"
-                      size="sm"
-                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
-                      onClick={handleAddNote}
-                    >
-                      <FileText className="h-4 w-4"/> New Note
-                    </Button>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <Button
-                      variant="sidebarAction"
-                      size="sm"
-                      className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
-                      onClick={handleAddWhiteboard}
-                    >
-                      <Pencil className="h-4 w-4"/> New Whiteboard
-                    </Button>
-                  </SidebarMenuItem>
-                  </>
-                )}
-                {notesInSelectedNotebook.map(item => (
-                  <SidebarMenuItem key={item.id}>
-                    <div className="flex items-center w-full gap-1">
-                      <SidebarMenuButton
-                        onClick={() => setSelectedNoteId(item.id)}
-                        isActive={selectedNoteId === item.id}
-                        className="justify-start text-sm flex-grow"
-                        tooltip={item.title}
-                      >
-                        {item.type === 'note' ? <FileText className="h-4 w-4 opacity-70" /> : <Pencil className="h-4 w-4 opacity-70" />}
-                        <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
-                      </SidebarMenuButton>
-                      <Button
-                        variant="sidebarAction"
-                        size="icon"
-                        className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleBookmark(item.id);
-                        }}
-                      >
-                        <BookMarked className={`h-4 w-4 ${item.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
-                      </Button>
-                    </div>
-                  </SidebarMenuItem>
-                ))}
-                {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
-                    <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No items in this notebook yet.</p>
-                )}
-                {!selectedNotebookId && notebooks.length > 0 && (
-                     <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see items.</p>
-                )}
-             </SidebarMenu>
-          </SidebarGroup>
+  <SidebarGroupLabel>Items</SidebarGroupLabel>
+  <SidebarMenu>
+    {selectedNotebookId && (
+      <div className="flex gap-2 px-2"> {/* Added flex container with gap */}
+        <SidebarMenuItem className="flex-1"> {/* Added flex-1 for equal width */}
+          <Button
+            variant="sidebarAction"
+            size="sm"
+            className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
+            onClick={handleAddNote}
+          >
+            <FileText className="h-4 w-4"/> 
+            <span className="group-data-[collapsible=icon]:hidden">New Note</span>
+          </Button>
+        </SidebarMenuItem>
+        <SidebarMenuItem className="flex-1"> {/* Added flex-1 for equal width */}
+          <Button
+            variant="sidebarAction"
+            size="sm"
+            className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity"
+            onClick={handleAddWhiteboard}
+          >
+            <Pencil className="h-4 w-4"/> 
+            <span className="group-data-[collapsible=icon]:hidden">New Board</span>
+          </Button>
+        </SidebarMenuItem>
+        </div>
+    )}
+    {notesInSelectedNotebook.map(item => (
+      <SidebarMenuItem key={item.id}>
+        <div className="flex items-center w-full gap-1">
+          <SidebarMenuButton
+            onClick={() => setSelectedNoteId(item.id)}
+            isActive={selectedNoteId === item.id}
+            className="justify-start text-sm flex-grow"
+            tooltip={item.title}
+          >
+            {item.type === 'note' ? <FileText className="h-4 w-4 opacity-70" /> : <Pencil className="h-4 w-4 opacity-70" />}
+            <span className="truncate group-data-[collapsible=icon]:hidden">{item.title}</span>
+          </SidebarMenuButton>
+          <Button
+            variant="sidebarAction"
+            size="icon"
+            className="h-7 w-7 opacity-40 hover:opacity-100 transition-opacity group-data-[collapsible=icon]:hidden"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleBookmark(item.id);
+            }}
+          >
+            <BookMarked className={`h-4 w-4 ${item.isBookmarked ? 'text-yellow-500 fill-yellow-400' : ''}`} />
+          </Button>
+        </div>
+      </SidebarMenuItem>
+    ))}
+    {selectedNotebookId && notesInSelectedNotebook.length === 0 && (
+        <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">No items in this notebook yet.</p>
+    )}
+    {!selectedNotebookId && notebooks.length > 0 && (
+          <p className="p-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">Select a notebook to see items.</p>
+    )}
+  </SidebarMenu>
+</SidebarGroup>
 
           <SidebarGroup className="mt-4 group-data-[collapsible=icon]:hidden">
             <SidebarGroupLabel>Bookmarks</SidebarGroupLabel>
@@ -1129,3 +1134,4 @@ const stopDrawing = useCallback(() => {
     </SidebarProvider>
   );
 }
+
