@@ -28,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   PlusCircle, Save, Trash2, BookMarked, Book, FileText, Edit3, Sparkles, Settings, X,
   Bold, Italic, Underline, List, ListOrdered, Palette, Table, Image as ImageIcon, Type,
-  Heading1, Heading2, Heading3, Highlighter, Pencil, Eraser
+  Heading1, Heading2, Heading3, Highlighter, Pencil, Eraser, StickyNote
 } from 'lucide-react';
 import NotebookIcon from './icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
@@ -36,9 +36,9 @@ import { DailyQuote } from './DailyQuote';
 import type { Notebook, Note } from '@/types';
 import { summarizeNotes, type SummarizeNotesInput, type SummarizeNotesOutput } from '@/ai/flows/summarize-notes';
 
-const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star'];
+const iconOptions = ['BookOpen', 'GraduationCap', 'Briefcase', 'Heart', 'Settings', 'Lightbulb', 'Smile', 'Star', 'StickyNote'];
 const notebookColorOptions = ['#352208', '#E1BB80', '#7B6B43', '#685634', '#806443', '#ffd93d', '#65B0E2', '#6C3F26'];
-const editorTextColors = ['#000000', '#FF0000', '#008000', '#0000FF', '#FFA500', '#800080', '#FFFFFF'];
+const editorTextColors = ['#000000', '#FF0000', '#008000', '#0000FF', '#FFA500', '#800080', '#FFFFFF', '#4A4A4A', '#A9A9A9'];
 const HIGHLIGHT_COLOR = 'yellow';
 
 const whiteboardPenColors = ['#000000', '#FF0000', '#008000', '#0000FF', '#FFFF00', '#FFA500', '#800080'];
@@ -50,12 +50,12 @@ const ERASER_WIDTH = 20;
 const LOCAL_STORAGE_NOTEBOOKS_KEY = 'Notatie-notebooks';
 const LOCAL_STORAGE_NOTES_KEY = 'Notatie-notes';
 
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
+const WHITEBOARD_DRAWABLE_WIDTH = 1200;
+const WHITEBOARD_DRAWABLE_HEIGHT = 800;
 
-// Theme background colors from globals.css
-const LIGHT_THEME_BACKGROUND = '#FAF8F4'; // hsl(35 25% 96%)
-const DARK_THEME_BACKGROUND = '#17120E';  // hsl(25 35% 8%)
+
+const LIGHT_THEME_BACKGROUND = '#FAF8F4'; 
+const DARK_THEME_BACKGROUND = '#17120E';  
 
 export default function QuillFlowApp() {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -80,8 +80,8 @@ export default function QuillFlowApp() {
   const editorRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
-  // Whiteboard refs and state
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null); 
   const drawingContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const isDrawingRef = useRef(false);
   const lastPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -157,6 +157,33 @@ export default function QuillFlowApp() {
     return notes.find(note => note.id === selectedNoteId);
   }, [notes, selectedNoteId]);
 
+  const getEventCoordinates = useCallback((event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
+    const canvas = canvasRef.current;
+    const scrollContainer = scrollContainerRef.current;
+    if (!canvas || !scrollContainer) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    let clientX, clientY;
+
+    if (event instanceof MouseEvent) {
+      clientX = event.clientX;
+      clientY = event.clientY;
+    } else if (event.touches && event.touches.length > 0) {
+      clientX = event.touches[0].clientX;
+      clientY = event.touches[0].clientY;
+    } else {
+      return null;
+    }
+    
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const finalX = (clientX - rect.left) * scaleX;
+    const finalY = ((clientY - rect.top) * scaleY) + scrollContainer.scrollTop;
+    
+    return { x: finalX, y: finalY };
+  }, []);
+
   useEffect(() => {
     if (selectedNote) {
       setCurrentNoteTitle(selectedNote.title);
@@ -192,11 +219,9 @@ export default function QuillFlowApp() {
         if (selectedNote.content) { 
           const img = new window.Image();
           img.onload = () => {
-            ctx.drawImage(img, 0, 0);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           };
           img.onerror = () => {
-            // console.error("Error loading image to canvas, canvas cleared to background.");
-            // Ensure background is still there if image fails
             ctx.fillStyle = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
           }
@@ -206,7 +231,7 @@ export default function QuillFlowApp() {
         setPenColor(DEFAULT_PEN_COLOR);
       }
     }
-  }, [selectedNote, canvasRef]); // No dependency on penColor or drawingTool here, handled by their setters
+  }, [selectedNote, canvasRef]); 
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -264,18 +289,18 @@ export default function QuillFlowApp() {
     if (selectedNote.type === 'whiteboard' && canvasRef.current) {
       const canvas = canvasRef.current;
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = canvas.width;
-      tempCanvas.height = canvas.height;
+      tempCanvas.width = WHITEBOARD_DRAWABLE_WIDTH; 
+      tempCanvas.height = WHITEBOARD_DRAWABLE_HEIGHT;
       const tempCtx = tempCanvas.getContext('2d');
 
       if (tempCtx) {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         tempCtx.fillStyle = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.drawImage(canvas, 0, 0);
+        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
-         contentToSave = canvas.toDataURL('image/png'); // Fallback, might not have desired background
+         contentToSave = canvas.toDataURL('image/png'); 
       }
     }
     
@@ -391,23 +416,6 @@ export default function QuillFlowApp() {
     });
   };
 
-  const getEventCoordinates = (event: MouseEvent | TouchEvent): { x: number; y: number } | null => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    let clientX, clientY;
-    if (event instanceof MouseEvent) {
-      clientX = event.clientX;
-      clientY = event.clientY;
-    } else if (event.touches && event.touches.length > 0) {
-      clientX = event.touches[0].clientX;
-      clientY = event.touches[0].clientY;
-    } else {
-      return null;
-    }
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  };
-
   const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     if (selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
     event.preventDefault(); 
@@ -429,7 +437,7 @@ export default function QuillFlowApp() {
       ctx.globalCompositeOperation = 'destination-out';
       ctx.lineWidth = ERASER_WIDTH;
     }
-  }, [selectedNote, penColor, drawingTool]);
+  }, [selectedNote, penColor, drawingTool, getEventCoordinates]);
 
   const draw = useCallback((event: MouseEvent | TouchEvent) => {
     if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
@@ -441,7 +449,7 @@ export default function QuillFlowApp() {
     ctx.lineTo(coords.x, coords.y);
     ctx.stroke();
     lastPositionRef.current = coords;
-  }, [selectedNote]);
+  }, [selectedNote, getEventCoordinates]);
 
   const stopDrawing = useCallback(() => {
     if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
@@ -450,7 +458,7 @@ export default function QuillFlowApp() {
       drawingContextRef.current.closePath();
     }
     if (canvasRef.current) {
-      const imageDataUrl = canvasRef.current.toDataURL('image/png'); // This will have transparent background for erased parts
+      const imageDataUrl = canvasRef.current.toDataURL('image/png'); 
       setCurrentNoteContent(imageDataUrl); 
     }
     lastPositionRef.current = null;
@@ -589,7 +597,7 @@ export default function QuillFlowApp() {
                       className="w-full justify-start gap-2 opacity-70 hover:opacity-100 transition-opacity" 
                       onClick={handleAddNote}
                     >
-                      <PlusCircle className="h-4 w-4"/> New Note
+                      <FileText className="h-4 w-4"/> New Note
                     </Button>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
@@ -832,14 +840,17 @@ export default function QuillFlowApp() {
                     style={{minHeight: '200px'}} 
                   />
                 ) : ( 
-                  <div className="flex-1 w-full flex items-center justify-center bg-muted/30 rounded-md overflow-hidden relative">
+                  <div 
+                    className="flex-1 w-full flex bg-muted/30 rounded-md overflow-auto relative" 
+                    ref={scrollContainerRef}
+                  >
                     <canvas 
                       ref={canvasRef} 
-                      width={CANVAS_WIDTH} 
-                      height={CANVAS_HEIGHT}
+                      width={WHITEBOARD_DRAWABLE_WIDTH} 
+                      height={WHITEBOARD_DRAWABLE_HEIGHT}
                       className="border border-border shadow-inner bg-background cursor-crosshair"
                       aria-label="Whiteboard drawing area"
-                      style={{touchAction: 'none'}} 
+                      style={{ width: '100%', touchAction: 'none', display: 'block' }} 
                     />
                   </div>
                 )}
@@ -885,7 +896,7 @@ export default function QuillFlowApp() {
             </p>
             {(selectedNotebookId && notesInSelectedNotebook.length === 0 && notebooks.length > 0) && (
               <div className="flex gap-2">
-                <Button onClick={handleAddNote}><PlusCircle className="mr-2 h-4 w-4" /> Create New Note</Button>
+                <Button onClick={handleAddNote}><FileText className="mr-2 h-4 w-4" /> Create New Note</Button>
                 <Button onClick={handleAddWhiteboard}><Pencil className="mr-2 h-4 w-4" /> Create New Whiteboard</Button>
               </div>
             )}            
@@ -958,3 +969,4 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
+
