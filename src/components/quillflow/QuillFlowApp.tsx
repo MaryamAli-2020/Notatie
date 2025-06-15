@@ -175,20 +175,73 @@ export default function QuillFlowApp() {
     } else {
       return null;
     }
-  
+    
+    // Calculate scaling factors based on attribute vs. displayed size
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
+  
+    // Calculate coordinates relative to the canvas element, then scale
+    const xOnCanvas = (clientX - rect.left) * scaleX;
+    const yOnCanvas = (clientY - rect.top) * scaleY;
+    
+    // For Y, also add the scroll offset of the container, then scale if canvas display height is also responsive
+    // However, if canvas CSS height is 'auto' or fixed (like here where aspect ratio implies fixed height based on width),
+    // scrollTop is applied to the unscaled Y.
+    // The current canvas style `height: 'auto'` combined with `aspectRatio` means its CSS height isn't fixed but derived.
+    // The `scaleY` correctly handles the conversion from this derived CSS height to the attribute height.
+    // The scroll offset should be added *after* scaling to the canvas's coordinate system if we assume
+    // scrollTop refers to scrolling of the element containing the CSS-scaled canvas.
+    // Or, more robustly: translate event Y to be relative to the *scrolling container's* viewport,
+    // then add scroll offset.
+    // Let's try the simpler: (clientY - rect.top) * scaleY + (scrollContainer.scrollTop * scaleY_if_container_scrolls_scaled_content)
+    // Simpler: If rect.top already accounts for the scroll container's viewport position, 
+    // then `(clientY - rect.top)` is the Y on the visible part of the canvas.
+    // Then scale it: `(clientY - rect.top) * scaleY`.
+    // And then add the scroll offset of the canvas's content (which is not directly `scrollContainer.scrollTop` for a scaled canvas without care).
 
-    const xOnCanvas = (clientX - rect.left);
-    const yOnCanvas = (clientY - rect.top);
+    // Let's use the more direct approach:
+    // X relative to canvas, scaled.
+    // Y relative to canvas, scaled. ScrollTop is tricky here.
+    // The most robust way is to consider the scroll container's scrollTop separately.
+    // The event coordinates (clientX, clientY) are relative to the viewport.
+    // rect.left, rect.top are relative to the viewport.
+    // So, (clientX - rect.left) is x *within the canvas's bounding box*.
+    // (clientY - rect.top) is y *within the canvas's bounding box*.
+    // These are then scaled.
+    // The scroll is on scrollContainerRef, which makes the canvas *appear* at a different vertical position
+    // within that container. The `rect.top` should already reflect the visible part of the canvas.
+    // The issue is if `canvas.height` (attribute) is much larger than `rect.height` (CSS pixels).
+
+    const finalX = (clientX - rect.left) * (canvas.width / rect.width);
+    // Y coordinate needs to account for the scroll offset of the *container* and scaling
+    // (clientY - rect.top) is the click relative to the visible part of the canvas
+    // scrollContainer.scrollTop is how much the container has been scrolled
+    // The canvas's actual drawing surface might be scrolled out of view.
+    // The y-coordinate on the full canvas = (click_y_on_visible_canvas_part + pixels_scrolled_internally_by_canvas)
+    // This interpretation was complex. The user's previous fix attempt had:
+    // const finalY = (yOnCanvas * scaleY) + (scrollContainer.scrollTop * scaleY); <- This assumes scrollTop scales, which is not direct.
+    // A more standard interpretation:
+    const finalY = ((clientY - rect.top) * (canvas.height / rect.height)) + 0; // Assuming rect.top already reflects scroll of parent
+                                                                          // This '0' is wrong if canvas itself can scroll inside scrollContainer (which it can't, container scrolls)
+    // Let's stick to the simpler version, but ensure scaleY is used for scrollTop too if rect.height is the scaled one.
+    // No, scrollTop is in CSS pixels of the scrollContainer.
+    // It should be: Y relative to canvas origin + scroll offset of container, then scaled if canvas content itself scales with fixed container.
+    // Given canvas style width:100%, height:auto, aspectRatio - its rect.height will change with rect.width.
+
+    // The most reliable approach:
+    // 1. Get click relative to canvas's visual bounding box:
+    let x = clientX - rect.left;
+    let y = clientY - rect.top;
+    // 2. Add scroll offset of the container (if the canvas doesn't fill the container and container scrolls)
+    // Since canvas width is 100%, only vertical scroll is relevant for the container.
+    // y += scrollContainer.scrollTop; // This needs to be re-evaluated. rect.top should already account for this.
+
+    // 3. Scale these coordinates to the canvas's internal resolution
+    const trueX = x * (canvas.width / rect.width);
+    const trueY = y * (canvas.height / rect.height);
     
-    // Apply scaling and consider scroll offset for Y
-    const finalX = xOnCanvas * scaleX;
-    // For Y, we scale the coordinate relative to the visible part of the canvas, 
-    // then add the scaled scroll offset.
-    const finalY = (yOnCanvas * scaleY) + (scrollContainer.scrollTop * scaleY);
-    
-    return { x: finalX, y: finalY };
+    return { x: trueX, y: trueY };
+
   }, []);
 
 
@@ -224,133 +277,132 @@ export default function QuillFlowApp() {
   }, [selectedNote]);
 
 
-  // Effect for initializing whiteboard when note is selected
-  useEffect(() => {
-    if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        drawingContextRef.current = null;
-        return;
-      }
-      drawingContextRef.current = ctx;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      
-      const currentThemeIsDark = document.documentElement.classList.contains('dark');
-      const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-      
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      if (selectedNote.content) {
-        const img = new window.Image();
-        img.onload = () => {
-          if (drawingContextRef.current) {
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = canvas.width;
-            tempCanvas.height = canvas.height;
-            const tempCtx = tempCanvas.getContext('2d');
-            
-            if (tempCtx) {
-              tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              
-              drawingContextRef.current.globalCompositeOperation = 'source-over';
-              drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
-              drawingContextRef.current.fillStyle = backgroundColor;
-              drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
-              
-              const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
-              const data = imageData.data;
-              
-              const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
-              const contentData = contentImageData.data;
-              
-              const lightBgR = 250, lightBgG = 248, lightBgB = 244; // #FAF8F4
-              const darkBgR = 23, darkBgG = 18, darkBgB = 14; // #17120E
-              const tolerance = 15;
-
-              for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                const a = data[i + 3];
-                
-                const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
-                const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
-                
-                if (!isLightBg && !isDarkBg && a > 0) {
-                  contentData[i] = r;
-                  contentData[i + 1] = g;
-                  contentData[i + 2] = b;
-                  contentData[i + 3] = a;
-                } else {
-                  contentData[i + 3] = 0; // Make transparent
-                }
-              }
-              drawingContextRef.current.putImageData(contentImageData, 0, 0);
-            }
-          }
-        };
-        img.onerror = () => {
-          console.error("Failed to load whiteboard image content for note selection.");
-        };
-        img.src = selectedNote.content;
-      }
-    } else {
+// Effect for initializing whiteboard when note is selected
+useEffect(() => {
+  if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
       drawingContextRef.current = null;
+      return;
     }
-  }, [selectedNote]);
+    drawingContextRef.current = ctx;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    const currentThemeIsDark = document.documentElement.classList.contains('dark');
+    const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+    
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Effect for handling theme changes without affecting content
-  useEffect(() => {
-    if (themeVersion === 0) return; 
+    if (selectedNote.content) {
+      const img = new window.Image();
+      img.onload = () => {
+        if (drawingContextRef.current) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = canvas.width;
+          tempCanvas.height = canvas.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          
+          if (tempCtx) {
+            tempCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            drawingContextRef.current.globalCompositeOperation = 'source-over';
+            drawingContextRef.current.clearRect(0, 0, canvas.width, canvas.height);
+            drawingContextRef.current.fillStyle = backgroundColor;
+            drawingContextRef.current.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const imageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
+            const contentData = contentImageData.data;
+            
+            const lightBgR = 250, lightBgG = 248, lightBgB = 244; 
+            const darkBgR = 23, darkBgG = 18, darkBgB = 14; 
+            const tolerance = 10; 
 
-    if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = drawingContextRef.current;
-
-      const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = currentImageData.data;
-      
-      const contentImageData = ctx.createImageData(canvas.width, canvas.height);
-      const contentData = contentImageData.data;
-
-      const lightBgR = 250, lightBgG = 248, lightBgB = 244; // #FAF8F4
-      const darkBgR = 23, darkBgG = 18, darkBgB = 14; // #17120E
-      const tolerance = 15;
-      
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        const a = data[i + 3];
-        
-        const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
-        const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
-        
-        if (!isLightBg && !isDarkBg && a > 0) {
-          contentData[i] = r;
-          contentData[i + 1] = g;
-          contentData[i + 2] = b;
-          contentData[i + 3] = a;
+            for (let i = 0; i < data.length; i += 4) {
+              const r = data[i];
+              const g = data[i + 1];
+              const b = data[i + 2];
+              const a = data[i + 3];
+              
+              const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
+              const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
+              
+              if (!isLightBg && !isDarkBg && a > 0) {
+                contentData[i] = r;
+                contentData[i + 1] = g;
+                contentData[i + 2] = b;
+                contentData[i + 3] = a;
+              } else {
+                contentData[i + 3] = 0; 
+              }
+            }
+            drawingContextRef.current.putImageData(contentImageData, 0, 0);
+          }
         }
-        // Background pixels (or pixels matching background colors) remain transparent (alpha 0)
-      }
-
-      const currentThemeIsDark = document.documentElement.classList.contains('dark');
-      const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-      
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = newBackgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      ctx.putImageData(contentImageData, 0, 0);
+      };
+      img.onerror = () => {
+        console.error("Failed to load whiteboard image content for note selection.");
+      };
+      img.src = selectedNote.content;
     }
-  }, [themeVersion, selectedNote?.id]);
+  } else {
+    drawingContextRef.current = null;
+  }
+}, [selectedNote]);
+
+// Effect for handling theme changes without affecting content
+useEffect(() => {
+  if (themeVersion === 0) return; 
+
+  if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
+    const canvas = canvasRef.current;
+    const ctx = drawingContextRef.current;
+
+    const currentImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = currentImageData.data;
+    
+    const contentImageData = ctx.createImageData(canvas.width, canvas.height);
+    const contentData = contentImageData.data;
+
+    const lightBgR = 250, lightBgG = 248, lightBgB = 244;
+    const darkBgR = 23, darkBgG = 18, darkBgB = 14;
+    const tolerance = 15; 
+      
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      
+      const isLightBg = Math.abs(r - lightBgR) < tolerance && Math.abs(g - lightBgG) < tolerance && Math.abs(b - lightBgB) < tolerance;
+      const isDarkBg = Math.abs(r - darkBgR) < tolerance && Math.abs(g - darkBgG) < tolerance && Math.abs(b - darkBgB) < tolerance;
+      
+      if (!isLightBg && !isDarkBg && a > 0) {
+        contentData[i] = r;
+        contentData[i + 1] = g;
+        contentData[i + 2] = b;
+        contentData[i + 3] = a;
+      }
+    }
+
+    const currentThemeIsDark = document.documentElement.classList.contains('dark');
+    const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+    
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = newBackgroundColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.putImageData(contentImageData, 0, 0);
+  }
+}, [themeVersion, selectedNote?.id]);
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -539,53 +591,49 @@ export default function QuillFlowApp() {
     });
   };
 
-  const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
-    if (selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
-    event.preventDefault();
-    const coords = getEventCoordinates(event);
-    if (!coords) return;
+const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
+  if (selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
+  event.preventDefault();
+  const coords = getEventCoordinates(event);
+  if (!coords) return;
 
-    isDrawingRef.current = true;
-    const ctx = drawingContextRef.current;
-    
-    if (drawingTool === 'pen') {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = penColor;
-      ctx.lineWidth = DEFAULT_PEN_WIDTH;
-    } else if (drawingTool === 'eraser') {
-      const currentThemeIsDark = document.documentElement.classList.contains('dark');
-      const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-      
-      ctx.globalCompositeOperation = 'source-over'; // Eraser now paints with background color
-      ctx.strokeStyle = backgroundColor;
-      ctx.lineWidth = ERASER_WIDTH;
-    }
-    
-    ctx.beginPath();
-    ctx.moveTo(coords.x, coords.y);
-    lastPositionRef.current = coords;
-  }, [selectedNote, penColor, drawingTool, getEventCoordinates]);
+  isDrawingRef.current = true;
+  const ctx = drawingContextRef.current;
+  
+  if (drawingTool === 'pen') {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = penColor;
+    ctx.lineWidth = DEFAULT_PEN_WIDTH;
+  } else if (drawingTool === 'eraser') {
+    ctx.globalCompositeOperation = 'destination-out'; 
+    ctx.lineWidth = ERASER_WIDTH;
+  }
+  
+  ctx.beginPath();
+  ctx.moveTo(coords.x, coords.y);
+  lastPositionRef.current = coords;
+}, [selectedNote, penColor, drawingTool, getEventCoordinates]);
 
-  const draw = useCallback((event: MouseEvent | TouchEvent) => {
-    if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
-    event.preventDefault();
-    const coords = getEventCoordinates(event);
-    if (!coords || !lastPositionRef.current) return;
-    
-    const ctx = drawingContextRef.current;
-    ctx.lineTo(coords.x, coords.y);
-    ctx.stroke();
-    lastPositionRef.current = coords;
-  }, [selectedNote, getEventCoordinates]);
+const draw = useCallback((event: MouseEvent | TouchEvent) => {
+  if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard' || !drawingContextRef.current) return;
+  event.preventDefault();
+  const coords = getEventCoordinates(event);
+  if (!coords || !lastPositionRef.current) return;
+  
+  const ctx = drawingContextRef.current;
+  ctx.lineTo(coords.x, coords.y);
+  ctx.stroke();
+  lastPositionRef.current = coords;
+}, [selectedNote, getEventCoordinates]);
 
-  const stopDrawing = useCallback(() => {
-    if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
-    isDrawingRef.current = false;
-    if (drawingContextRef.current) {
-      drawingContextRef.current.closePath();
-    }
-    lastPositionRef.current = null;
-  }, [selectedNote]);
+const stopDrawing = useCallback(() => {
+  if (!isDrawingRef.current || selectedNote?.type !== 'whiteboard') return;
+  isDrawingRef.current = false;
+  if (drawingContextRef.current) {
+    drawingContextRef.current.closePath();
+  }
+  lastPositionRef.current = null;
+}, [selectedNote]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1096,3 +1144,6 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
+
+
+    
