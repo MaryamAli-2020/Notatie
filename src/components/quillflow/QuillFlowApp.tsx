@@ -182,8 +182,10 @@ export default function QuillFlowApp() {
     const xOnCanvas = (clientX - rect.left);
     const yOnCanvas = (clientY - rect.top);
   
+    // For Y, we also need to consider the scroll position of the container
+    // but the scaling should apply to the yOnCanvas relative to the *visible* part of the canvas
     const finalX = xOnCanvas * scaleX;
-    const finalY = yOnCanvas * scaleY + scrollContainer.scrollTop * scaleY;
+    const finalY = (yOnCanvas * scaleY) + (scrollContainer.scrollTop * scaleY); // Apply scaling to scrollTop too
     
     return { x: finalX, y: finalY };
   }, []);
@@ -236,17 +238,16 @@ export default function QuillFlowApp() {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         
-        const oldGCO = ctx.globalCompositeOperation;
-        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalCompositeOperation = 'source-over'; // Ensure GCO is source-over for background fill
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = backgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.globalCompositeOperation = oldGCO;
 
         if (selectedNote.content) { 
             const img = new window.Image();
             img.onload = () => {
                 if (drawingContextRef.current) { 
+                   drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure GCO is source-over for drawing image
                    drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
                 }
             };
@@ -272,19 +273,17 @@ export default function QuillFlowApp() {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         
-        const oldGCO = ctx.globalCompositeOperation;
-        ctx.globalCompositeOperation = 'source-over'; 
+        ctx.globalCompositeOperation = 'source-over';  // Ensure GCO is source-over for background fill
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = newBackgroundColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
-        ctx.globalCompositeOperation = oldGCO; 
-
         if (liveDrawingDataUrl) {
             const img = new window.Image();
             img.onload = () => {
                 if (drawingContextRef.current) { 
+                    drawingContextRef.current.globalCompositeOperation = 'source-over'; // Ensure GCO is source-over for drawing image
                     drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
                 }
             };
@@ -360,14 +359,14 @@ export default function QuillFlowApp() {
         const currentThemeIsDark = document.documentElement.classList.contains('dark');
         const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
         
-        const oldTempGCO = tempCtx.globalCompositeOperation;
-        tempCtx.globalCompositeOperation = 'source-over';
+        tempCtx.globalCompositeOperation = 'source-over'; // Ensure GCO for background fill
 
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+        tempCtx.globalCompositeOperation = 'source-over'; // Ensure GCO for drawing main canvas content
         tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height); 
         
-        tempCtx.globalCompositeOperation = oldTempGCO; 
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
          contentToSave = canvas.toDataURL('image/png'); 
@@ -495,10 +494,6 @@ export default function QuillFlowApp() {
     isDrawingRef.current = true;
     const ctx = drawingContextRef.current;
     
-    ctx.beginPath();
-    ctx.moveTo(coords.x, coords.y);
-    lastPositionRef.current = coords;
-
     if (drawingTool === 'pen') {
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = penColor;
@@ -507,6 +502,11 @@ export default function QuillFlowApp() {
       ctx.globalCompositeOperation = 'destination-out'; 
       ctx.lineWidth = ERASER_WIDTH;
     }
+    
+    ctx.beginPath();
+    ctx.moveTo(coords.x, coords.y);
+    lastPositionRef.current = coords;
+
   }, [selectedNote, penColor, drawingTool, getEventCoordinates]);
 
   const draw = useCallback((event: MouseEvent | TouchEvent) => {
