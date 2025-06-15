@@ -286,9 +286,9 @@ useEffect(() => {
             const contentImageData = drawingContextRef.current.createImageData(canvas.width, canvas.height);
             const contentData = contentImageData.data;
             
-            const lightBgR = 250, lightBgG = 248, lightBgB = 244;
-            const darkBgR = 23, darkBgG = 18, darkBgB = 14;    
-            const tolerance = 10;
+            const lightBgR = 250, lightBgG = 248, lightBgB = 244; // From LIGHT_THEME_BACKGROUND #FAF8F4
+            const darkBgR = 23, darkBgG = 18, darkBgB = 14;    // From DARK_THEME_BACKGROUND #17120E
+            const tolerance = 10; 
 
             for (let i = 0; i < data.length; i += 4) {
               const r = data[i];
@@ -342,13 +342,19 @@ useEffect(() => {
     const contentOnlyImageData = ctx.createImageData(canvas.width, canvas.height);
     const contentOnlyData = contentOnlyImageData.data;
 
+    // Determine previous background based on the theme *before* the toggle
+    // This assumes the toggle has already visually happened (document.documentElement.class changed)
     const prevThemeIsDark = !document.documentElement.classList.contains('dark'); 
     
     let prevBgR = 0, prevBgG = 0, prevBgB = 0;
-    if (prevThemeIsDark) { 
-        prevBgR = 23; prevBgG = 18; prevBgB = 14; 
-    } else { 
-        prevBgR = 250; prevBgG = 248; prevBgB = 244;
+    if (prevThemeIsDark) { // If previous theme was dark
+        prevBgR = parseInt(DARK_THEME_BACKGROUND.substring(1,3), 16); 
+        prevBgG = parseInt(DARK_THEME_BACKGROUND.substring(3,5), 16);
+        prevBgB = parseInt(DARK_THEME_BACKGROUND.substring(5,7), 16);
+    } else { // If previous theme was light
+        prevBgR = parseInt(LIGHT_THEME_BACKGROUND.substring(1,3), 16);
+        prevBgG = parseInt(LIGHT_THEME_BACKGROUND.substring(3,5), 16);
+        prevBgB = parseInt(LIGHT_THEME_BACKGROUND.substring(5,7), 16);
     }
     const tolerance = 15; 
 
@@ -624,10 +630,7 @@ const startDrawing = useCallback((event: MouseEvent | TouchEvent) => {
     ctx.strokeStyle = penColor;
     ctx.lineWidth = DEFAULT_PEN_WIDTH;
   } else if (drawingTool === 'eraser') {
-    ctx.globalCompositeOperation = 'source-over'; // Paint over with background color
-    const currentThemeIsDark = document.documentElement.classList.contains('dark');
-    const backgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
-    ctx.strokeStyle = backgroundColor;
+    ctx.globalCompositeOperation = 'destination-out'; 
     ctx.lineWidth = eraserWidth;
   }
 
