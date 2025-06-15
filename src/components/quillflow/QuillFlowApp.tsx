@@ -179,53 +179,10 @@ export default function QuillFlowApp() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height; 
 
-    const canvasX = (clientX - rect.left) * scaleX;
-    // For Y, consider the canvas's own potential scroll offset if it were directly scrollable,
-    // and the scroll offset of its parent container.
-    // However, since the canvas height attribute dictates its internal coordinate system,
-    // and its CSS height might be different (e.g. if constrained by parent and aspect ratio),
-    // scaling Y is also appropriate.
-    const canvasY = (clientY - rect.top) * scaleY;
-    
-    // Add scroll container's scroll top to get the absolute Y on the tall canvas
-    // This was causing issues if the canvas itself scaled its height due to width:100%
-    // The scaling should handle the mapping to the canvas's internal coordinate system.
-    // The scroll offset is for the container, not the canvas internal drawing.
-    // Let's stick to scaling for both, assuming rect gives visible part.
-    // Re-check this if Y-offset issues persist with responsive height.
-    // The most robust for a canvas displayed at a different aspect ratio than its attributes
-    // is to scale both X and Y based on rect dimensions vs attribute dimensions.
-    // The scroll offset is for the *container*, how much of the *canvas* is hidden *above*.
-    // So, `(clientY - rect.top)` gives y relative to visible canvas.
-    // Then scale that to canvas internal. `scrollContainer.scrollTop` is not directly added to this scaled value
-    // unless the scaling itself is also considering the scroll.
-    // Simpler: (y_on_screen - canvas_top_on_screen) * (canvas_attr_height / canvas_css_height) + canvas_internal_scroll_y_if_any
-    // Our canvas doesn't scroll internally. Its container does.
-    // So, y_coord_on_canvas_attribute_space = ( (clientY - rect.top) + scrollContainer.scrollTop ) * scaleY;
-    // This seems more complex. Let's use:
     const finalX = (clientX - rect.left) * scaleX;
     const finalY = ((clientY - rect.top) * scaleY) + (scrollContainer.scrollTop * scaleY) ;
-    // No, the scrollTop is in CSS pixels, not canvas attribute pixels.
-    // finalY = ( (clientY - rect.top) + scrollContainer.scrollTop ) * scaleY if canvas height was responsive.
-    // But canvas height attribute is fixed.
-    // Correct: Y relative to viewport: clientY. Y of canvas top: rect.top. Y in container: clientY - rect.top.
-    // Y in scroll container, including scrolled out part: (clientY - rect.top) + scrollContainer.scrollTop
-    // This sum is in CSS pixels. Now scale to canvas attribute pixels.
-    // finalY = ((clientY - rect.top) + scrollContainer.scrollTop) * scaleY
-    // finalX = (clientX - rect.left) * scaleX; // This is likely correct.
-
-    // Let's assume rect.width/height are the CSS dimensions of the canvas element.
-    // And canvas.width/height are its attribute (drawing surface) dimensions.
-    // The y-coordinate within the scrollable container, if scaledHeight = rect.height
-    const yRelativeToCanvasElement = clientY - rect.top;
-    // We need to account for how much the scrollContainer has been scrolled
-    const yInScrollableContent = yRelativeToCanvasElement + scrollContainer.scrollTop;
-    // Now map this yInScrollableContent (which is in CSS pixels relative to the top of the canvas content)
-    // to the canvas's internal coordinate system using scaleY.
-    // finalY = yInScrollableContent * scaleY;
-
-    // This seems the most robust.
-     return { x: finalX, y: yInScrollableContent * scaleY };
+    
+     return { x: finalX, y: finalY };
 
   }, []);
 
@@ -261,13 +218,19 @@ export default function QuillFlowApp() {
     }
   }, [selectedNote]);
 
+
+  // Effect for initializing/changing selected note for whiteboard
   useEffect(() => {
     if (selectedNote?.type === 'whiteboard' && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      drawingContextRef.current = ctx;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            console.error("Failed to get 2D context for whiteboard canvas.");
+            drawingContextRef.current = null; 
+            return;
+        }
+        drawingContextRef.current = ctx;
 
-      if (ctx) {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         
@@ -279,22 +242,53 @@ export default function QuillFlowApp() {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         if (selectedNote.content) { 
-          const img = new window.Image();
-          img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          };
-          img.onerror = () => {
-             console.error("Failed to load whiteboard image content. Displaying clean background.");
-             // Background is already painted, so nothing more to do for error.
-          }
-          img.src = selectedNote.content;
+            const img = new window.Image();
+            img.onload = () => {
+                if (drawingContextRef.current) { 
+                   drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
+                }
+            };
+            img.onerror = () => {
+                console.error("Failed to load whiteboard image content for selected note. Displaying clean background.");
+            }
+            img.src = selectedNote.content;
         }
-        // Restore drawing tool settings or defaults
-        // setDrawingTool('pen'); // Keep current tool if user was just changing theme
-        // setPenColor(DEFAULT_PEN_COLOR); // Keep current color
-      }
+    } else {
+        drawingContextRef.current = null; 
     }
-  }, [selectedNote, canvasRef, themeVersion]); // Added themeVersion
+  }, [selectedNote]);
+
+  // Effect for handling theme changes for an active whiteboard
+  useEffect(() => {
+    if (themeVersion === 0) return; // Don't run on initial mount before theme is possibly set
+
+    if (selectedNote?.type === 'whiteboard' && canvasRef.current && drawingContextRef.current) {
+        const canvas = canvasRef.current;
+        const ctx = drawingContextRef.current;
+
+        const liveDrawingDataUrl = canvas.toDataURL('image/png');
+
+        const currentThemeIsDark = document.documentElement.classList.contains('dark');
+        const newBackgroundColor = currentThemeIsDark ? DARK_THEME_BACKGROUND : LIGHT_THEME_BACKGROUND;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = newBackgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        if (liveDrawingDataUrl) {
+            const img = new window.Image();
+            img.onload = () => {
+                if (drawingContextRef.current) { 
+                    drawingContextRef.current.drawImage(img, 0, 0, canvas.width, canvas.height);
+                }
+            };
+            img.onerror = (e) => {
+                console.error("Error loading live drawing data for theme change:", e);
+            }
+            img.src = liveDrawingDataUrl;
+        }
+    }
+  }, [themeVersion, selectedNote]);
 
 
   const handleContentChange = (event: React.FormEvent<HTMLDivElement>) => {
@@ -362,7 +356,7 @@ export default function QuillFlowApp() {
         
         tempCtx.fillStyle = backgroundColor;
         tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height); // Draw visible canvas onto temp canvas
         contentToSave = tempCanvas.toDataURL('image/png');
       } else {
          contentToSave = canvas.toDataURL('image/png'); 
@@ -499,7 +493,7 @@ export default function QuillFlowApp() {
       ctx.strokeStyle = penColor;
       ctx.lineWidth = DEFAULT_PEN_WIDTH;
     } else if (drawingTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out'; // This makes erased parts transparent
+      ctx.globalCompositeOperation = 'destination-out'; 
       ctx.lineWidth = ERASER_WIDTH;
     }
   }, [selectedNote, penColor, drawingTool, getEventCoordinates]);
@@ -522,14 +516,6 @@ export default function QuillFlowApp() {
     if (drawingContextRef.current) {
       drawingContextRef.current.closePath();
     }
-    if (canvasRef.current) {
-      // Content is updated via currentNoteContent, which should be saved on handleSaveNote
-      // To avoid saving on every stroke, we can update currentNoteContent here too.
-      // However, handleSaveNote using a temporary canvas is more robust for background.
-      // For live preview, this is fine, but actual saving logic is in handleSaveNote.
-      // const imageDataUrl = canvasRef.current.toDataURL('image/png'); 
-      // setCurrentNoteContent(imageDataUrl); 
-    }
     lastPositionRef.current = null;
   }, [selectedNote]);
 
@@ -537,8 +523,6 @@ export default function QuillFlowApp() {
     const canvas = canvasRef.current;
     if (!canvas || selectedNote?.type !== 'whiteboard') return;
 
-    // Ensure these are re-bound if getEventCoordinates or other dependencies change.
-    // The drawing functions themselves are memoized with getEventCoordinates.
     const handleStart = (e: MouseEvent | TouchEvent) => startDrawing(e);
     const handleMove = (e: MouseEvent | TouchEvent) => draw(e);
     const handleEnd = () => stopDrawing();
@@ -1044,6 +1028,5 @@ export default function QuillFlowApp() {
     </SidebarProvider>
   );
 }
-
-
     
+
